@@ -1,0 +1,9 @@
+/* Contain visually hidden table headings inside the horizontal scroll area. */
+.table-scroll { position: relative; }
+@media (max-width: 720px) {
+  .table-tabs { overflow-x: auto; scrollbar-width: thin; }
+  .table-tabs button { flex-shrink: 0; }
+  .card-heading > div { min-width: 0; }
+}
+.score-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;padding:0 20px 20px}
+@media(max-width:720px){.score-summary-grid{grid-template-columns:1fr}}

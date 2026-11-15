@@ -1,0 +1,13 @@
+fastapi==0.142.2
+scikit-learn==1.9.0
+joblib==1.6.0
+uvicorn==0.54.0
+ctranslate2==4.8.2
+tokenizers==0.23.2
+transformers==5.18.0
+huggingface-hub==1.33.0
+numpy==2.5.3
+imageio-ffmpeg==0.6.0
+
+# Optional verification: pytest, httpx
+# Optional explainer regeneration: Playwright + Chrome

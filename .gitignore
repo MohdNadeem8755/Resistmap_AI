@@ -1,0 +1,37 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+node_modules/
+dist/
+data/raw/*
+data/processed/*
+data/reference/*
+models/*
+results/*
+!**/.gitkeep
+
+# Large generated/reference files
+results/ceftazidime_sequence_scaleup/qc_review/checkm2_db/
+results/ceftazidime_sequence_scaleup/reads/
+results/ceftazidime_sequence_pilot/biological_qc/
+data/external/eucast_genomes.invalid.zip
+data/external/multispecies_candidate_screen/liverpool_genomes.zip
+
+# Large TB source tables
+data/multispecies/tuberculosis/*.parquet
+
+# Private/generated project data
+data/
+models/
+reports/dashboard/
+reports/frontend_python_setup.log
+reports/ui_qa/
+reports/ui_revision/
+
+# Keep the IEEE paper
+!reports/ieee_paper/
+!reports/ieee_paper/*.tex
+!reports/ieee_paper/*.pdf
