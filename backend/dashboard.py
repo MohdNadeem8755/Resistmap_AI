@@ -123,6 +123,7 @@ def snapshot(root=ROOT):
     confusion = [[num(r.get('Predicted susceptible')),num(r.get('Predicted resistant'))] for r in confusion_rows]
     counts = {key:sum(r['status']==key for r in samples) for key in ['annotated','queued','review']}
     return {'generated_at':datetime.now(timezone.utc).isoformat(),
+        'multispecies': multispecies_summary(root),
         'cohort':{'total':len(samples),'projects':len({r['project'] for r in samples}),
                   'susceptible':sum(r['phenotype']=='Susceptible' for r in samples),
                   'resistant':sum(r['phenotype']=='Resistant' for r in samples),
@@ -143,6 +144,25 @@ def snapshot(root=ROOT):
                  'candidates':[{'name':r['candidate'],'threshold':num(r['threshold']),
                                 'accuracy':num(r['accuracy']),'balanced_accuracy':num(r['balanced_accuracy'])} for r in candidates[:8]]},
         'samples':samples,'reports':report_inventory(root)}
+
+
+def multispecies_summary(root=ROOT):
+    """Expose saved multispecies development summaries without loading large matrices."""
+    base = root / 'data/processed/multispecies'
+    output = []
+    for species, label in [('escherichia_coli', 'E. coli'), ('acinetobacter_baumannii', 'A. baumannii')]:
+        unsup = read_json(base / species / 'unsupervised_profiles/report.json', {}) or {}
+        model = read_json(base / species / 'encoded/supervised_models/report.json', {}) or {}
+        anomaly = read_json(base / species / 'unsupervised_profiles/anomaly_resampling/report.json', {}) or {}
+        output.append({'species': label, 'encoded_samples': unsup.get('encoded_samples'),
+            'genomic_features': unsup.get('features'), 'unique_profiles': unsup.get('unique_profiles'),
+            'eligible_tasks_trained': model.get('eligible_tasks_trained', 0),
+            'supervised_summary': model.get('summary', []),
+            'anomaly_validation_samples': anomaly.get('validation_samples'),
+            'anomaly_rank_correlation': anomaly.get('pairwise_spearman_range'),
+            'status': 'development baseline; independent validation pending'})
+    return {'species': output, 'tb_status': 'preprocessed cohort; genomic feature matrix pending',
+            'scope': 'Saved development analyses only; no external validation claim.'}
 
 
 def report_paths(root=ROOT):
