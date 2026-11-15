@@ -1,0 +1,19 @@
+WEBVTT
+
+00:00.000 --> 00:10.000
+ResistMap AI explores genomic patterns associated with antibiotic resistance and supports evidence review.
+
+00:10.000 --> 00:20.000
+Connect genome sources and laboratory susceptibility labels by BioSample. The development cohort contains 445 samples.
+
+00:20.000 --> 00:30.000
+Check file integrity, species and assembly quality. Preserve review flags and assess contamination before interpretation.
+
+00:30.000 --> 00:40.000
+Extract gene, allele and mutation evidence. Explore unusual profiles in the separate surveillance cohort.
+
+00:40.000 --> 00:50.000
+Compare models using separated BioProjects. Freeze model choices before fresh independent validation. A 99% accuracy target is not yet verified.
+
+00:50.000 --> 01:00.000
+Inspect charts, review evidence and export reports. ResistMap is a research workspace, not a treatment recommendation system.
