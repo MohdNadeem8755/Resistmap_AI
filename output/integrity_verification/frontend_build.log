@@ -1,0 +1,15 @@
+
+> resistmap-ai-frontend@0.1.0 build
+> vite build
+
+vite v7.3.6 building client environment for production...
+transforming...
+node_modules/.pnpm/lucide-react@1.49.0_react@19.3.0/node_modules/lucide-react/dist/esm/context.mjs (2:0): Module level directives cause errors when bundled, "use client" in "node_modules/.pnpm/lucide-react@1.49.0_react@19.3.0/node_modules/lucide-react/dist/esm/context.mjs" was ignored.
+node_modules/.pnpm/lucide-react@1.49.0_react@19.3.0/node_modules/lucide-react/dist/esm/Icon.mjs (2:0): Module level directives cause errors when bundled, "use client" in "node_modules/.pnpm/lucide-react@1.49.0_react@19.3.0/node_modules/lucide-react/dist/esm/Icon.mjs" was ignored.
+✓ 1907 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.74 kB │ gzip:   0.47 kB
+dist/assets/index-BPXthdUs.css   60.10 kB │ gzip:  12.77 kB
+dist/assets/index--2ewZiUz.js   366.30 kB │ gzip: 109.72 kB
+✓ built in 2.41s

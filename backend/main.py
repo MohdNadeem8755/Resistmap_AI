@@ -94,6 +94,35 @@ class ChatInput(BaseModel):
     language:str=Field(default='en',pattern='^(en|hi)$')
 
 
+class ResetRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+
+class ResetPassword(BaseModel):
+    token: str = Field(min_length=20, max_length=128)
+    password: str = Field(min_length=8, max_length=256)
+
+
+@app.post('/api/auth/forgot-password')
+def forgot_password(body: ResetRequest, request: Request):
+    rate_limit(request, 'reset-ip')
+    try:
+        auth.request_reset(body.email)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return {'message': 'If this email has an account, a reset link will be sent. Check your inbox and spam folder.'}
+
+
+@app.post('/api/auth/reset-password')
+def reset_password(body: ResetPassword, request: Request):
+    rate_limit(request, 'reset-ip')
+    try:
+        auth.reset_password(body.token, body.password)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {'message': 'Password changed. Sign in with your new password.'}
+
+
 @app.post('/api/chat')
 def chat(body:ChatInput):
     return assistant.answer(body.message,body.language)
@@ -180,16 +209,59 @@ def validate_input(body:InputPreview):
 class PredictionInput(InputPreview):
     species: str = Field(max_length=100)
     complete_profile: bool = False
+    drug: str = None
 
 
 @app.post('/api/predict')
 def predict_input(body: PredictionInput):
     try:
-        return prediction.predict(body.content, body.species, body.complete_profile)
+        return prediction.predict(body.content, body.species, body.complete_profile, drug=body.drug)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     except (RuntimeError, ImportError, OSError) as exc:
         raise HTTPException(503, str(exc)) from exc
+
+
+@app.get('/api/unsupervised/{species}/projection.png')
+def saved_projection(species: str):
+    if species not in {'escherichia_coli', 'acinetobacter_baumannii', 'tuberculosis'}:
+        raise HTTPException(404, 'Projection unavailable')
+    path = dashboard.ROOT/'data/processed/multispecies'/species/'unsupervised_profiles/svd/svd_overview.png'
+    if not path.is_file():
+        raise HTTPException(404, 'Saved projection unavailable')
+    return FileResponse(path, media_type='image/png')
+
+
+@app.get('/api/tb/cluster_image')
+def tb_cluster_image():
+    path = dashboard.ROOT/'data/processed/multispecies/tuberculosis/unsupervised_profiles/clusters/cluster_overview.png'
+    if not path.is_file():
+        raise HTTPException(404, 'Cluster image unavailable')
+    return FileResponse(path, media_type='image/png')
+
+
+@app.get('/api/tb/projection_image')
+def tb_projection_image():
+    return saved_projection('tuberculosis')
+
+
+class SampleLookupRequest(BaseModel):
+    id: str = Field(min_length=1, max_length=150)
+    species: str = None
+    drug: str = None
+
+
+@app.get('/api/sample-lookup')
+def sample_lookup_get(id: str = '', species: str = None, drug: str = None):
+    try:
+        return dashboard.lookup_sample(id, species, drug)
+    except dashboard.CohortLookupUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+@app.post('/api/sample-lookup')
+def sample_lookup_post(body: SampleLookupRequest):
+    return sample_lookup_get(body.id, body.species, body.drug)
 
 
 dist=dashboard.ROOT/'frontend/dist'

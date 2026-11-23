@@ -20,6 +20,7 @@ def connect():
     db.row_factory=sqlite3.Row
     db.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, salt TEXT NOT NULL, password_hash TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires REAL NOT NULL)')
+    db.execute('CREATE TABLE IF NOT EXISTS password_resets (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires REAL NOT NULL)')
     try:
         with db:
             yield db
@@ -81,3 +82,41 @@ def logout(token):
     if token:
         with connect() as db:
             db.execute('DELETE FROM sessions WHERE token_hash=?',(hashlib.sha256(token.encode()).hexdigest(),))
+
+
+def request_reset(email):
+    from backend.mailer import send_reset, configured
+    if not configured():
+        raise RuntimeError('Email reset is not configured. Contact the workspace administrator.')
+    with connect() as db:
+        user = db.execute('SELECT id,email FROM users WHERE email=?', (email.strip().lower(),)).fetchone()
+        if not user:
+            return
+        token = secrets.token_urlsafe(32)
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        db.execute('DELETE FROM password_resets WHERE user_id=? OR expires<?', (user['id'], time.time()))
+        db.execute('INSERT INTO password_resets VALUES(?,?,?)', (digest, user['id'], time.time()+1800))
+    try:
+        send_reset(user['email'], token)
+    except Exception:
+        with connect() as db:
+            db.execute('DELETE FROM password_resets WHERE token_hash=?', (digest,))
+        # Do not expose account existence or mail-server details to the requester.
+        import logging
+        logging.getLogger(__name__).warning('Password reset email delivery failed')
+
+
+def reset_password(token, password):
+    if not 8 <= len(password) <= 256:
+        raise ValueError('Use a password between 8 and 256 characters.')
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    salt = secrets.token_hex(16)
+    hashed = password_hash(password, salt)
+    with connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT user_id FROM password_resets WHERE token_hash=? AND expires>?', (digest, time.time())).fetchone()
+        if not row:
+            raise ValueError('Reset link is invalid or expired. Request a new link.')
+        db.execute('UPDATE users SET salt=?,password_hash=? WHERE id=?', (salt, hashed, row['user_id']))
+        db.execute('DELETE FROM password_resets WHERE user_id=?', (row['user_id'],))
+        db.execute('DELETE FROM sessions WHERE user_id=?', (row['user_id'],))

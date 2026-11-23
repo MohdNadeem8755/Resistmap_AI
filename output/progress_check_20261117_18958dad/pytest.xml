@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="2" tests="27" time="21.326" timestamp="2026-11-17T18:41:29.590526+05:30" hostname="LAPTOP-G5RHOHBN"><testcase classname="tests.test_dashboard" name="test_session_and_protection" time="4.396" /><testcase classname="tests.test_dashboard" name="test_sources_and_scope" time="0.784" /><testcase classname="tests.test_dashboard" name="test_input_and_reports" time="0.184" /><testcase classname="tests.test_dashboard" name="test_origin_and_assistant" time="0.236" /><testcase classname="tests.test_dashboard" name="test_sample_lookup" time="0.179"><failure message="AssertionError: assert None == 'Resistant'">client = &lt;starlette.testclient.TestClient object at 0x00000139AEF33E10&gt;
+
+    def test_sample_lookup(client):
+        sign_up(client)
+        # Klebsiella pneumoniae lookup
+        r = client.get('/api/sample-lookup?id=SAMN22567290')
+        assert r.status_code == 200 and r.json()['found'] is True
+        assert r.json()['species'] == 'Klebsiella pneumoniae'
+        assert r.json()['status'] in ('Resistant', 'Susceptible')
+        assert r.json()['predicted'] in ('Resistant', 'Susceptible')
+        assert r.json()['score'] is not None
+    
+        # E. coli lookup: lab AST and genuine model prediction &amp; score
+        r = client.get('/api/sample-lookup?id=SAMN48878206')
+        assert r.status_code == 200 and r.json()['found'] is True
+        assert r.json()['species'] == 'Escherichia coli'
+        assert r.json()['status'] == 'Resistant'
+        assert r.json()['predicted'] == 'Resistant'
+        assert r.json()['score'] is not None
+        assert r.json()['score_source'] == 'model_inference'
+    
+        # A. baumannii lookup: lab AST and genuine model prediction &amp; score
+        r = client.get('/api/sample-lookup?id=SAMN02437332')
+        assert r.status_code == 200 and r.json()['found'] is True
+        assert r.json()['species'] == 'Acinetobacter baumannii'
+        assert r.json()['status'] == 'Susceptible'
+        assert r.json()['predicted'] == 'Susceptible'
+        assert r.json()['score'] is not None
+        assert r.json()['score_source'] == 'model_inference'
+    
+        # TB lookup: lab AST and genuine model prediction &amp; score
+        r = client.get('/api/sample-lookup?id=SAMEA10029749')
+        assert r.status_code == 200 and r.json()['found'] is True
+        assert r.json()['species'] == 'Mycobacterium tuberculosis'
+        assert r.json()['status'] == 'Resistant'
+&gt;       assert r.json()['predicted'] == 'Resistant'
+E       AssertionError: assert None == 'Resistant'
+
+tests\test_dashboard.py:106: AssertionError</failure></testcase><testcase classname="tests.test_dashboard" name="test_sample_lookup_antibiotic_selection" time="0.111" /><testcase classname="tests.test_dashboard" name="test_multispecies_summary_and_tb_scope" time="0.181"><failure message="assert True is False">client = &lt;starlette.testclient.TestClient object at 0x00000139AF108270&gt;
+
+    def test_multispecies_summary_and_tb_scope(client):
+        sign_up(client)
+        d = client.get('/api/dashboard').json()
+        ms = d['multispecies']
+        assert 'species' in ms
+        assert len(ms['species']) == 3
+    
+        # Check E. coli and A. baumannii have scores
+        ec = next(s for s in ms['species'] if s['id'] == 'escherichia_coli')
+        assert ec['scores']['train']['accuracy'] is not None
+        assert ec['scores']['validation']['accuracy'] is not None
+        assert ec['scores']['test']['accuracy'] is not None
+    
+        ab = next(s for s in ms['species'] if s['id'] == 'acinetobacter_baumannii')
+        assert ab['scores']['train']['accuracy'] is not None
+        assert ab['scores']['validation']['accuracy'] is not None
+        assert ab['scores']['test']['accuracy'] is not None
+    
+        # Check TB: unsupervised is explicitly marked as unavailable
+        tb = next(s for s in ms['species'] if s['id'] == 'tuberculosis')
+&gt;       assert tb['unsupervised_available'] is False
+E       assert True is False
+
+tests\test_dashboard.py:162: AssertionError</failure></testcase><testcase classname="tests.test_dashboard" name="test_species_examples_honesty" time="0.015"><failure message="AssertionError: assert 'not_integrated' == 'model_inference'&#10;  &#10;  - model_inference&#10;  + not_integrated">def test_species_examples_honesty():
+        examples = dashboard.get_species_examples()
+        # KP examples have saved_v1_prediction
+        for ex in examples['Klebsiella pneumoniae']:
+            assert ex['score_source'] == 'saved_v1_prediction'
+    
+        # EC examples: genuine model inference predictions and scores
+        for ex in examples['Escherichia coli']:
+            assert ex['score_source'] == 'model_inference'
+            assert ex['score'] is not None
+            assert ex['predicted'] in ('Resistant', 'Susceptible')
+    
+        # AB examples: genuine model inference predictions and scores
+        for ex in examples['Acinetobacter baumannii']:
+            assert ex['score_source'] == 'model_inference'
+            assert ex['score'] is not None
+            assert ex['predicted'] in ('Resistant', 'Susceptible')
+    
+        # TB examples: genuine model inference predictions and scores
+        for ex in examples['Mycobacterium tuberculosis']:
+&gt;           assert ex['score_source'] == 'model_inference'
+E           AssertionError: assert 'not_integrated' == 'model_inference'
+E             
+E             - model_inference
+E             + not_integrated
+
+tests\test_dashboard.py:191: AssertionError</failure></testcase><testcase classname="tests.test_input_speech" name="test_speech_limits_and_errors" time="0.104"><skipped type="pytest.skip" message="Speech engine not available on this machine">D:\ResistMap-AI\tests\test_input_speech.py:30: Speech engine not available on this machine</skipped></testcase><testcase classname="tests.test_input_speech" name="test_real_speech_clip" time="0.099"><skipped type="pytest.skip" message="speech-test.wav not present in reports">D:\ResistMap-AI\tests\test_input_speech.py:41: speech-test.wav not present in reports</skipped></testcase><testcase classname="tests.test_input_speech" name="test_hindi_request_routes_to_model" time="0.103" /><testcase classname="tests.test_input_speech" name="test_own_input_and_csv_safety" time="0.107" /><testcase classname="tests.test_missing_artifacts" name="test_missing_model_and_vocabulary" time="0.004" /><testcase classname="tests.test_missing_artifacts" name="test_incompatible_models[2-classes0]" time="0.004" /><testcase classname="tests.test_missing_artifacts" name="test_incompatible_models[1-classes1]" time="0.004" /><testcase classname="tests.test_missing_artifacts" name="test_binary_encoding_and_class_order" time="0.004" /><testcase classname="tests.test_missing_artifacts" name="test_tb_fails_closed_even_without_artifacts" time="0.001" /><testcase classname="tests.test_prediction" name="test_real_model_threshold_and_unknown_features" time="0.746" /><testcase classname="tests.test_prediction" name="test_scope_required[Pseudomonas aeruginosa-True]" time="0.000" /><testcase classname="tests.test_prediction" name="test_scope_required[Klebsiella pneumoniae-False]" time="0.000" /><testcase classname="tests.test_prediction" name="test_scope_required[Escherichia coli-False]" time="0.000" /><testcase classname="tests.test_prediction" name="test_multispecies_prediction_endpoints" time="0.115" /><testcase classname="tests.test_prediction" name="test_authenticated_api" time="0.218" /><testcase classname="tests.test_prediction" name="test_authenticated_species_and_unavailable_api" time="0.109" /><testcase classname="tests.test_tb_encoding" name="test_original_mutations_match_saved_matrix" time="6.961" /><testcase classname="tests.test_tb_encoding" name="test_binary_pairs_preserve_boundaries" time="0.001" /><testcase classname="tests.test_tb_features" name="test_binary_features_quarantine_and_label_alignment" time="0.046" /></testsuite></testsuites>

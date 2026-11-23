@@ -1,0 +1,113 @@
+....F.FFss.................                                              [100%]
+================================== FAILURES ===================================
+_____________________________ test_sample_lookup ______________________________
+
+client = <starlette.testclient.TestClient object at 0x00000139AEF33E10>
+
+    def test_sample_lookup(client):
+        sign_up(client)
+        # Klebsiella pneumoniae lookup
+        r = client.get('/api/sample-lookup?id=SAMN22567290')
+        assert r.status_code == 200 and r.json()['found'] is True
+        assert r.json()['species'] == 'Klebsiella pneumoniae'
+        assert r.json()['status'] in ('Resistant', 'Susceptible')
+        assert r.json()['predicted'] in ('Resistant', 'Susceptible')
+        assert r.json()['score'] is not None
+    
+        # E. coli lookup: lab AST and genuine model prediction & score
+        r = client.get('/api/sample-lookup?id=SAMN48878206')
+        assert r.status_code == 200 and r.json()['found'] is True
+        assert r.json()['species'] == 'Escherichia coli'
+        assert r.json()['status'] == 'Resistant'
+        assert r.json()['predicted'] == 'Resistant'
+        assert r.json()['score'] is not None
+        assert r.json()['score_source'] == 'model_inference'
+    
+        # A. baumannii lookup: lab AST and genuine model prediction & score
+        r = client.get('/api/sample-lookup?id=SAMN02437332')
+        assert r.status_code == 200 and r.json()['found'] is True
+        assert r.json()['species'] == 'Acinetobacter baumannii'
+        assert r.json()['status'] == 'Susceptible'
+        assert r.json()['predicted'] == 'Susceptible'
+        assert r.json()['score'] is not None
+        assert r.json()['score_source'] == 'model_inference'
+    
+        # TB lookup: lab AST and genuine model prediction & score
+        r = client.get('/api/sample-lookup?id=SAMEA10029749')
+        assert r.status_code == 200 and r.json()['found'] is True
+        assert r.json()['species'] == 'Mycobacterium tuberculosis'
+        assert r.json()['status'] == 'Resistant'
+>       assert r.json()['predicted'] == 'Resistant'
+E       AssertionError: assert None == 'Resistant'
+
+tests\test_dashboard.py:106: AssertionError
+___________________ test_multispecies_summary_and_tb_scope ____________________
+
+client = <starlette.testclient.TestClient object at 0x00000139AF108270>
+
+    def test_multispecies_summary_and_tb_scope(client):
+        sign_up(client)
+        d = client.get('/api/dashboard').json()
+        ms = d['multispecies']
+        assert 'species' in ms
+        assert len(ms['species']) == 3
+    
+        # Check E. coli and A. baumannii have scores
+        ec = next(s for s in ms['species'] if s['id'] == 'escherichia_coli')
+        assert ec['scores']['train']['accuracy'] is not None
+        assert ec['scores']['validation']['accuracy'] is not None
+        assert ec['scores']['test']['accuracy'] is not None
+    
+        ab = next(s for s in ms['species'] if s['id'] == 'acinetobacter_baumannii')
+        assert ab['scores']['train']['accuracy'] is not None
+        assert ab['scores']['validation']['accuracy'] is not None
+        assert ab['scores']['test']['accuracy'] is not None
+    
+        # Check TB: unsupervised is explicitly marked as unavailable
+        tb = next(s for s in ms['species'] if s['id'] == 'tuberculosis')
+>       assert tb['unsupervised_available'] is False
+E       assert True is False
+
+tests\test_dashboard.py:162: AssertionError
+________________________ test_species_examples_honesty ________________________
+
+    def test_species_examples_honesty():
+        examples = dashboard.get_species_examples()
+        # KP examples have saved_v1_prediction
+        for ex in examples['Klebsiella pneumoniae']:
+            assert ex['score_source'] == 'saved_v1_prediction'
+    
+        # EC examples: genuine model inference predictions and scores
+        for ex in examples['Escherichia coli']:
+            assert ex['score_source'] == 'model_inference'
+            assert ex['score'] is not None
+            assert ex['predicted'] in ('Resistant', 'Susceptible')
+    
+        # AB examples: genuine model inference predictions and scores
+        for ex in examples['Acinetobacter baumannii']:
+            assert ex['score_source'] == 'model_inference'
+            assert ex['score'] is not None
+            assert ex['predicted'] in ('Resistant', 'Susceptible')
+    
+        # TB examples: genuine model inference predictions and scores
+        for ex in examples['Mycobacterium tuberculosis']:
+>           assert ex['score_source'] == 'model_inference'
+E           AssertionError: assert 'not_integrated' == 'model_inference'
+E             
+E             - model_inference
+E             + not_integrated
+
+tests\test_dashboard.py:191: AssertionError
+============================== warnings summary ===============================
+C:\Users\ASUS\AppData\Roaming\Python\Python314\site-packages\fastapi\testclient.py:1
+  C:\Users\ASUS\AppData\Roaming\Python\Python314\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+SKIPPED [1] tests\test_input_speech.py:30: Speech engine not available on this machine
+SKIPPED [1] tests\test_input_speech.py:41: speech-test.wav not present in reports
+FAILED tests/test_dashboard.py::test_sample_lookup - AssertionError: assert N...
+FAILED tests/test_dashboard.py::test_multispecies_summary_and_tb_scope - asse...
+FAILED tests/test_dashboard.py::test_species_examples_honesty - AssertionErro...
+3 failed, 22 passed, 2 skipped, 1 warning in 21.33s

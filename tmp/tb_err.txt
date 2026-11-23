@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "/mnt/d/ResistMap-AI/tmp/inspect_tb.py", line 9, in <module>
+    labels  = pd.read_parquet(os.path.join(BASE, "labels.parquet"))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/Mohd_Sami/.local/share/resistmap-contamination-qc/env/lib/python3.12/site-packages/pandas/io/parquet.py", line 757, in read_parquet
+    impl = get_engine(engine)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/Mohd_Sami/.local/share/resistmap-contamination-qc/env/lib/python3.12/site-packages/pandas/io/parquet.py", line 73, in get_engine
+    raise ImportError(
+ImportError: Unable to find a usable engine; tried using: 'pyarrow', 'fastparquet'.
+A suitable version of pyarrow or fastparquet is required for parquet support.
+Trying to import the above resulted in these errors:
+ - `Import pyarrow` failed. pyarrow is required for parquet support. Use pip, conda, or your preferred package management tool to install the pyarrow package.
+ - `Import fastparquet` failed. fastparquet is required for parquet support. Use pip, conda, or your preferred package management tool to install the fastparquet package.

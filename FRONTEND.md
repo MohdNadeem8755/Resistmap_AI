@@ -12,6 +12,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\ResistMap-AI\start_dashbo
 
 Visit **http://127.0.0.1:8011** and choose **Create an account** on the animated login page. No default password or shared account is installed. Accounts are local to this computer. The server runs hidden and listens only on loopback; logs are under `reports/dashboard/`.
 
+To use an existing Python environment with the dashboard dependencies installed, pass `-PythonPath D:\AncondaAPP\python.exe` to `start_dashboard.ps1`. The overview reads the saved TB feature report; feature construction and model training are separate statuses.
+
 The production build and API use one local server. Port 8000 is left available to the user's other application. This is a local research application; internet deployment would require a separate deployment and authentication review.
 
 ## Included
@@ -23,7 +25,7 @@ The production build and API use one local server. Port 8000 is left available t
 - Interactive six-stage dataflow diagram and an original 60-second animated explainer, downloadable as MP4 and WebM, with English/Hindi captions. The video has no recorded narration.
 - Bilingual project chatbot grounded in saved project data and a local guide. It answers progress, accuracy, quality and workflow questions. It can navigate pages and change theme/language. It is a bounded project guide, not a general-purpose LLM.
 - Voice recording through MediaRecorder, with local multilingual Whisper transcription via CTranslate2. Choose English or Hindi, record up to 30 seconds, stop, review the editable transcript, then send. Audio-file upload (8 MB maximum) works when the embedded browser blocks microphone capture. Audio is decoded in memory with FFmpeg and is not persisted or sent to a cloud speech service. Spoken replies still use browser speech synthesis and installed voices.
-- Add input opens manual sample entry, pasted CSV/TSV tables, and file upload. Enter your own sample IDs and gene/mutation calls, add multiple samples, check the input and download it. Inputs are not saved on the server and no resistance predictions are generated; model inference integration remains pending.
+- Add input opens manual sample entry, pasted CSV/TSV tables, and file upload. Enter your own sample IDs and gene/mutation calls, add multiple samples, check the input and download it. Inputs are not saved on the server. - Saved V2 model inference is available for confirmed complete **Klebsiella pneumoniae**, **Escherichia coli**, and **Acinetobacter baumannii** profiles; **Mycobacterium tuberculosis** only shows unsupervised results and the supervised endpoint remains closed (HTTP 503).
 
 ## Research scope
 

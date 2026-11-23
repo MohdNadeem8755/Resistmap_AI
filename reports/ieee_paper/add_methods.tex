@@ -1,0 +1,43 @@
+\subsection{Workflow Boundaries and Evidence Flow}
+Fig.~\ref{fig:workflow} separates the data used for prediction from the data retained for auditing. The distinction prevents an administrative field from becoming a shortcut for the phenotype. BioProject identifies the sampling group during partitioning; it is never passed to the classifier. Similarly, susceptibility labels determine the target and permit stratification, but neither the categorical label nor its underlying MIC enters the feature dictionary. Source type and assembly-quality flags describe measurement conditions and remain available for review without becoming predictive inputs.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[every node/.style={font=\small},box/.style={draw=resblue,fill=resblue!6,rounded corners=2pt,text width=6.8cm,align=center,minimum height=0.70cm}]
+\node[box] (a) at (0,0) {Public susceptibility and genotype exports\\BioSample linkage and label-conflict audit};
+\node[box] (b) at (0,-1.15) {BioProject outer partition\\Remove profile and known-SNP-cluster overlap};
+\node[box] (c) at (0,-2.30) {445 development isolates\\Three project-separated validation folds};
+\node[box] (d) at (0,-3.45) {Fit feature vocabulary on training rows only\\Train candidates and save out-of-fold probabilities};
+\node[box] (e) at (0,-4.60) {Select model and threshold on development folds\\Refit selected pipeline; retain audit metadata};
+\node[box,draw=resorange,fill=resorange!6] (f) at (0,-5.75) {Independent future cohort required\\Historical V1 test is not a fresh V2 test};
+\draw[->,thick] (a)--(b);\draw[->,thick] (b)--(c);\draw[->,thick] (c)--(d);\draw[->,thick] (d)--(e);\draw[->,thick] (e)--(f);
+\end{tikzpicture}
+\caption{Prediction-development workflow. Sequence regeneration is a separate branch and has not supplied the predictors evaluated in the saved V2 run.}
+\label{fig:workflow}
+\end{figure}
+
+The trained representation and the sequence-regeneration branch have different provenance. The former consumes the genotype strings in an existing public export. The latter regenerates evidence from downloaded nucleotide assemblies or read sets using a recorded tool environment. A shared gene name does not establish equivalence between the two representations: reference versions, alignment rules, partial-call handling, and mutation coverage may differ. A transition to regenerated features therefore requires a new feature audit and model evaluation, even if the interface and target antibiotic stay the same.
+
+An isolate record has three conceptual parts: identifiers for joining and auditing, measured or deposited evidence, and model-derived output. Maintaining these parts separately permits an analyst to trace an error back to its original genotype and susceptibility record. It also prevents a model probability from being mistaken for an experimental susceptibility measurement. The current manuscript evaluates the classification component of this workflow; it does not assume that a dashboard display supplies additional validation.
+
+\subsection{Assumptions Behind the Binary Representation}
+The representation assumes that reported complete genes and known point mutations contain useful information about the deposited ceftazidime phenotype. It does not assume that every encoded determinant is specific to ceftazidime. The model may use co-occurring determinants as statistical markers, including features whose association reflects the sampled bacterial population rather than a direct resistance mechanism. Accordingly, a high predictive contribution would require separate biological investigation before being described as causal.
+
+Repeated occurrences of the same retained token within an isolate produce a single indicator. This deliberately avoids interpreting duplicated annotations as gene dosage. Gene and mutation namespaces remain distinct, so a gene call cannot silently replace a point-mutation call with the same text. Tokens with excluded statuses do not contribute to the primary vector, although their raw source record remains relevant when reviewing an error. Malformed entries are treated as parsing problems rather than silently converted into a susceptible label.
+
+A training-fold vocabulary defines the columns available to a fitted model. A validation isolate can contain a determinant absent from that vocabulary; the model cannot learn an effect for that determinant from the current training fold. This is an information limitation, not a reason to rebuild the vocabulary using validation rows. The appropriate response is to retain the unseen-feature evidence for audit and evaluate the model under the same information constraint that applies to a new isolate.
+
+\subsection{Why Two Levels of Separation Are Needed}
+The outer partition and the development folds serve different purposes. The outer split originally created the historical V1 test, while the inner folds support model comparison on the retained development set. Project separation at both levels blocks direct reuse of a project's isolates across the corresponding fit and evaluation partitions. Profile and known-cluster filtering address a different problem: distinct project accessions can still contain closely related or identically represented isolates.
+
+Filtering acts on training candidates, leaving the evaluation partition intact. Reversing that direction would change the evaluation population in response to the available training data. The resulting training set can become smaller than the nominal group split suggests; that loss is part of the protocol and must be retained in the manifest. A model fitted after overlap removal therefore faces a different information budget from a model evaluated by a conventional random row split.
+
+The procedure uses observed annotations rather than a full reconstruction of evolutionary relationships. Identical feature profiles are a conservative computational overlap criterion, not proof that two isolates are identical genomes. Conversely, different profiles do not prove that two isolates are unrelated. A known SNP-cluster identifier supplies additional evidence, but an absent identifier leaves uncertainty. These distinctions explain why the manuscript describes the protocol as project-separated with overlap controls rather than as fully phylogenetically independent validation.
+
+\subsection{Recorded Selection Procedure}
+For each candidate, three fitted pipelines produce one probability for every development isolate in its assigned validation fold. The 17 thresholds are applied to these saved probabilities; changing the threshold does not require retraining the candidate. Thus, V2 uses 33 cross-validation fits, followed by one final development-set fit, while comparing 187 configuration--threshold combinations. This count describes the V2 stage only and excludes earlier V1 tuning and feature experiments.
+
+The saved decision rule uses a greater-than-or-equal comparison. An output exactly equal to 0.40 is therefore classified as resistant. This small implementation detail matters when reproducing classifications from rounded probabilities. The archived floating-point values, rather than the rounded values printed in a table, should be used to recreate decisions. The selected threshold must also remain attached to the trained pipeline: retaining only the forest and reverting to a default decision boundary would reproduce a different predictor.
+
+The mean fold objective, worst-fold tie breaker, and threshold tie breaker are recorded explicitly. No project-specific threshold is fitted. Nevertheless, searching the same folds over candidate models and thresholds is an adaptive use of those folds. The procedure supports a transparent development choice; it does not convert the winning cross-validation score into a final generalization estimate.
+

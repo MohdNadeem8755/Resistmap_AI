@@ -1,0 +1,44 @@
+@property --rgb-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes rgb-orbit { to { --rgb-angle: 360deg; } }
+#saved-batch-input:focus {
+  border: 2px solid transparent;
+  background: linear-gradient(var(--surface, Canvas), var(--surface, Canvas)) padding-box,
+    conic-gradient(from var(--rgb-angle), #ff4469, #ffcc46, #48e696, #3cbfff, #a76cff, #ff4469) border-box;
+  animation: rgb-orbit 3s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  #saved-batch-input:focus { animation: none; }
+}
+:is(.stat-card, .prediction-tile, .search-box):is(:hover, :focus-within, [data-rgb-clicked]),
+:is(.login-story, .login-form-side, .login-form-wrap .input-icon, .search-box):focus-within {
+  position: relative;
+}
+:is(.stat-card, .prediction-tile, .search-box):is(:hover, :focus-within, [data-rgb-clicked])::after,
+:is(.login-story, .login-form-side, .login-form-wrap .input-icon, .search-box):focus-within::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(from var(--rgb-angle), #ff4469, #ffcc46, #48e696, #3cbfff, #a76cff, #ff4469);
+  mask: linear-gradient(#fff 0 0) content-box exclude, linear-gradient(#fff 0 0);
+  pointer-events: none;
+  z-index: 2;
+  animation: rgb-orbit 3s linear infinite;
+}
+.login-story:focus-within::after, .login-form-wrap:not(:has(input[name="name"])) .input-icon:focus-within::after {
+  animation-direction: reverse;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.stat-card, .prediction-tile, .search-box):is(:hover, :focus-within, [data-rgb-clicked])::after { animation: none; }
+  :is(.login-story, .login-form-side, .login-form-wrap .input-icon, .search-box):focus-within::after { animation: none; }
+}
+.login-form-wrap > .mini-label {
+  display: block;
+  width: 100%;
+  text-align: center;
+}

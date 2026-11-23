@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Database, Dna, Download, FileCheck2, FileText, FlaskConical, GitBranch, Globe2, LayoutDashboard, LogOut, Menu, Moon, MoreHorizontal, Play, RefreshCw, Search, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Sun, UploadCloud, Volume2, X, Zap, ChartScatter, CircleAlert } from 'lucide-react';
+import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Database, Dna, Download, FileCheck2, FileText, FlaskConical, GitBranch, Globe2, LayoutDashboard, LogOut, Menu, Moon, MoreHorizontal, Play, RefreshCw, Search, Settings2, ShieldCheck, ShieldAlert, SlidersHorizontal, Sparkles, Sun, UploadCloud, Volume2, X, Zap, ChartScatter, CircleAlert } from 'lucide-react';
 import { api, format, pct, useUI } from './context';
 import { Brand, BrandMark, GenomeArt } from './Brand';
 import { SourceDonut, FoldBars, Scatter, Heatmap, CountryBars, Confusion } from './Charts';
@@ -7,11 +7,13 @@ import Login from './Login';
 import Workflow from './Workflow';
 import Assistant from './Assistant';
 import InputWorkspace from './InputWorkspace';
+import UnsupervisedResults from './UnsupervisedResults';
+import { lookupSavedExamples } from './savedExampleLookup.mjs';
 import './revision.css';
 import './styles.css';
 import './responsive-fixes.css';
 
-const routes = ['overview', 'genomes', 'explore', 'models', 'workflow', 'input', 'reports', 'settings'];
+const routes = ['overview', 'species', 'genomes', 'explore', 'models', 'workflow', 'input', 'reports', 'settings'];
 const getPage = () => routes.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'overview';
 
 function Pill({ status, children }) { return <span className={`pill ${status || ''}`}>{children}</span>; }
@@ -28,20 +30,343 @@ function SampleTable({ samples, compact, onSelect }) {
   return <div className="table-scroll"><table className="samples-table"><thead><tr><th>{t('Genome / BioSample', 'Genome / BioSample')}</th><th>{t('Source', 'स्रोत')}</th>{!compact && <th>BioProject</th>}<th>{t('AMR hits', 'AMR hits')}</th><th>{t('Status', 'स्थिति')}</th><th><span className="sr-only">Details</span></th></tr></thead><tbody>{samples.map(s => <tr key={s.id}><td><button className="sample-link" onClick={() => onSelect(s)}><span className="sample-icon"><Dna size={17} /></span><span><strong>{s.id}</strong><small>{s.isolate}</small></span></button></td><td><span className="source-tag">{s.source === 'assembly' ? t('Assembly', 'Assembly') : t('Paired reads', 'Paired reads')}</span></td>{!compact && <td className="mono muted">{s.project}</td>}<td className="mono">{s.amr_hits ?? '—'}</td><td><Pill status={s.status}>{s.status === 'annotated' ? <Check size={12} /> : s.status === 'review' ? <CircleAlert size={12} /> : <span className="small-dot" />}{s.status === 'annotated' ? t('Annotated', 'Annotated') : s.status === 'review' ? t('Review flag', 'Review flag') : t('Queued', 'कतार में')}</Pill></td><td><button className="icon-button" onClick={() => onSelect(s)} aria-label={`Details for ${s.id}`}><ArrowUpRight size={16} /></button></td></tr>)}</tbody></table></div>;
 }
 
+function SpeciesSummary({ data }) {
+  return <><CohortSummary data={data} />{location.hash === '#species' && <UnsupervisedResults summary={data.multispecies} />}</>;
+}
+
+function CohortSummary({ data }) {
+  const { t } = useUI();
+  const summary = data.multispecies;
+  if (!summary) return <Empty text={t('Species summaries are unavailable. Refresh data to retry.', 'Species summaries उपलब्ध नहीं हैं। Refresh करें।')} />;
+  const rows = [
+    { name: 'Klebsiella pneumoniae', samples: data.cohort.total, status: t('Development cohort', 'Development cohort') },
+    ...(summary.species || []).map(s => ({ name: s.species === 'E. coli' ? 'Escherichia coli' : s.species === 'A. baumannii' ? 'Acinetobacter baumannii' : s.species, samples: s.encoded_samples, status: s.encoded_samples == null ? t('Saved summary unavailable', 'Saved summary उपलब्ध नहीं है') : t('Saved development summary available', 'Saved development summary उपलब्ध है') })),
+  ];
+  return <section className="card"><CardHead title={t('Bacterial cohorts', 'Bacterial cohorts')} subtitle={t('Saved cohort summaries by species', 'हर species की saved cohort summary')} /><div className="stats-grid">{rows.map(row => <section className="stat-card rgb-card" tabIndex={0} key={row.name}><div className="stat-top"><strong>{row.name}</strong></div><div className="stat-value">{row.samples == null ? '—' : format(row.samples)}<small>{t('samples', 'samples')}</small></div><p>{row.status}</p></section>)}</div><p className="card-note">{t('Counts describe separate saved cohorts. Independent validation remains pending. Genome browsing and Model lab currently show the K. pneumoniae cohort.', 'ये अलग-अलग saved cohorts के counts हैं। Independent validation बाकी है। Genome browser और Model lab अभी K. pneumoniae cohort दिखाते हैं।')}</p></section>;
+}
+
+function PresentationPrediction({ examples = [], speciesExamples = {}, abScreen = [] }) {
+  const { t } = useUI();
+  const [speciesFilter, setSpeciesFilter] = useState('all');
+  const [selectedId, setSelectedId] = useState('');
+  const [inputId, setInputId] = useState('');
+  const lookupVersion = useRef(0);
+  const [batchText, setBatchText] = useState('');
+  const [batchMatches, setBatchMatches] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [activeResult, setActiveResult] = useState(null);
+
+  // Pool of all known examples across species
+  const allExamples = useMemo(() => {
+    const list = [...examples];
+    Object.entries(speciesExamples || {}).forEach(([spName, rows]) => {
+      if (spName !== 'Klebsiella pneumoniae') {
+        list.push(...rows);
+      }
+    });
+    return list;
+  }, [examples, speciesExamples]);
+
+  // Current species options for dropdown
+  const filteredExamples = useMemo(() => {
+    if (speciesFilter === 'all') return allExamples;
+    if (speciesExamples && speciesExamples[speciesFilter]) return speciesExamples[speciesFilter];
+    if (speciesFilter === 'Klebsiella pneumoniae') return examples;
+    return allExamples;
+  }, [speciesFilter, allExamples, examples, speciesExamples]);
+
+  // Default initial example
+  useEffect(() => {
+    if (!activeResult && examples.length > 0) {
+      const def = examples[0];
+      setSelectedId(def.sample);
+      setInputId(def.sample);
+      setActiveResult({
+        found: true,
+        sample: def.sample,
+        species: 'Klebsiella pneumoniae',
+        drug: 'ceftazidime',
+        standard: 'CLSI',
+        status: def.observed || def.predicted || 'Unavailable',
+        predicted: def.predicted || null,
+        score: def.score,
+        score_source: def.score_source || 'saved_v1_prediction',
+        split: 'test',
+        drugs: [{ drug: 'ceftazidime', status: def.observed || def.predicted, split: 'test' }],
+        explanation: `Sample ${def.sample} is a Klebsiella pneumoniae isolate evaluated in the CLSI ceftazidime test cohort. Laboratory testing confirmed this sample as ${def.observed || 'Unknown'} to ceftazidime. The saved V1 development classification was ${def.predicted || 'Unavailable'} with an estimated resistance score of ${def.score != null ? def.score.toFixed(3) : '—'}.`
+      });
+    }
+  }, [examples, activeResult]);
+
+  async function performLookup(idToLookup) {
+    const sid = (idToLookup || '').trim();
+    if (!sid) return;
+    const request = ++lookupVersion.current;
+    const saved = allExamples.find(row => row.sample.toUpperCase() === sid.toUpperCase());
+    const savedResult = saved && {
+      ...saved,
+      found: true,
+      status: saved.observed || 'Unavailable',
+      species: saved.species || 'Klebsiella pneumoniae',
+      drug: saved.drug || 'ceftazidime',
+      standard: saved.standard || 'CLSI',
+      drugs: [],
+      explanation: `Saved example for ${saved.sample}. Observed lab result: ${saved.observed || 'Unavailable'}. Model prediction: ${saved.predicted || 'Unavailable'}.`,
+    };
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ id: sid });
+      if (saved?.drug) params.set('drug', saved.drug);
+      const result = await api(`/sample-lookup?${params}`);
+      if (request !== lookupVersion.current) return;
+      const useSaved = savedResult && (!result.found ||
+        (!result.predicted && savedResult.predicted && result.drug === savedResult.drug && result.standard === savedResult.standard));
+      setActiveResult(useSaved ? { ...savedResult, drugs: result.drugs || [] } : result);
+      setSelectedId(saved?.sample || '');
+      setInputId(result.sample || sid);
+    } catch {
+      if (request !== lookupVersion.current) return;
+      setActiveResult(savedResult || { sample: sid, status: 'Unavailable', species: 'Unknown',
+        explanation: 'Sample lookup could not be completed. Try again when the cohort records are available.' });
+      setSelectedId(saved?.sample || '');
+    } finally {
+      if (request === lookupVersion.current) setLoading(false);
+    }
+  }
+
+  function handleQuickSelect(id) {
+    setInputId(id);
+    setSelectedId(id);
+    performLookup(id);
+  }
+
+  return <section className="card prediction-showcase">
+    <CardHead title={t('Antibiotic resistance prediction & ID lookup', 'Antibiotic resistance prediction और ID lookup')} subtitle={t('Multi-species isolate verification · Susceptible / Resistant / Not Susceptible/Resistant', 'Multi-species isolate verification · Susceptible / Resistant / Not Susceptible/Resistant')} />
+    <div className="prediction-showcase-body">
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
+        <span className="prediction-demo-badge">{t('MULTI-SPECIES RESISTANCE INSPECTOR', 'MULTI-SPECIES RESISTANCE INSPECTOR')}</span>
+        <span className="pill small">{speciesFilter === 'all' ? 'All Cohorts' : speciesFilter}</span>
+      </div>
+
+      <div className="grid-2-col" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 16 }}>
+        <div>
+          <label className="field-label" htmlFor="species-filter-select">{t('Filter by species', 'Species के अनुसार चुनें')}
+            <select id="species-filter-select" value={speciesFilter} onChange={e => { const species = e.target.value;
+              setSpeciesFilter(species);
+              const first = species === 'all' ? allExamples[0] : speciesExamples[species]?.[0];
+              if (first) handleQuickSelect(first.sample); }}>
+              <option value="all">{t('All species cohorts', 'सभी species cohorts')}</option>
+              <option value="Klebsiella pneumoniae">Klebsiella pneumoniae</option>
+              <option value="Escherichia coli">Escherichia coli</option>
+              <option value="Acinetobacter baumannii">Acinetobacter baumannii</option>
+              <option value="Mycobacterium tuberculosis">Mycobacterium tuberculosis</option>
+            </select>
+          </label>
+        </div>
+        <div>
+          <label className="field-label" htmlFor="presentation-sample-select">{t('Choose from saved examples', 'Saved examples में से चुनें')}
+            <select id="presentation-sample-select" value={selectedId} onChange={e => { setSelectedId(e.target.value); setInputId(e.target.value); performLookup(e.target.value); }}>
+              <option value="">{t('— Select an isolate —', '— Isolate चुनें —')}</option>
+              {filteredExamples.map(row => (
+                <option key={`${row.species}-${row.sample}`} value={row.sample}>
+                  {row.sample} ({row.species ? (row.species.startsWith('K') ? 'K. pneumoniae' : row.species.startsWith('E') ? 'E. coli' : row.species.startsWith('A') ? 'A. baumannii' : 'M. tb') : ''} · {row.predicted || row.observed})
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+
+      {(['all', 'Escherichia coli'].includes(speciesFilter)) && <EcoliExternalResults />}
+      {speciesFilter === 'Acinetobacter baumannii' && <section>
+        <h3>External cohort screening</h3>
+        {abScreen.map(row => <p key={row.project}>{row.project} · {row.overlapping_sample_records} of {row.sample_records} records previously seen.</p>)}
+        <p>Independent drug prediction evaluation and external anomaly scoring are pending.</p>
+      </section>}
+      <div style={{ background: 'var(--surface-light, rgba(255,255,255,0.03))', padding: '16px', borderRadius: '10px', border: '1px solid var(--line)', marginBottom: 20 }}>
+        <label className="field-label" htmlFor="manual-id-input" style={{ marginBottom: 6 }}>
+          <strong>{t('Input any Sample ID / Accession to inspect:', 'जाँचने के लिए कोई भी Sample ID / Accession लिखें:')}</strong>
+        </label>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <input
+            id="manual-id-input"
+            type="text"
+            className="manual-id"
+            style={{ flex: 1, minWidth: 220, padding: '9px 14px', fontSize: '15px' }}
+            placeholder={t('Enter sample ID (e.g. SAMN48878206, SAMN02437332, or any ID)...', 'Sample ID डालें...')}
+            value={inputId}
+            onChange={e => setInputId(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); performLookup(inputId); } }}
+          />
+          <button type="button" className="button primary" disabled={loading || !inputId.trim()} onClick={() => performLookup(inputId)}>
+            {loading ? t('Inspecting…', 'जाँच हो रही है…') : t('Inspect ID', 'ID जाँचें')}
+            <ArrowRight size={16} />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, alignItems: 'center' }}>
+          <small className="muted">{t('Quick examples:', 'तुरंत उदाहरण:')}</small>
+          <button type="button" className="text-button small" onClick={() => handleQuickSelect('SAMN48878206')}>E. coli Resistant (SAMN48878206)</button>
+          <button type="button" className="text-button small" onClick={() => handleQuickSelect('SAMN06641883')}>E. coli Susceptible (SAMN06641883)</button>
+          <button type="button" className="text-button small" onClick={() => handleQuickSelect('SAMN04211933')}>A. baumannii Resistant (SAMN04211933)</button>
+          <button type="button" className="text-button small" onClick={() => handleQuickSelect('SAMN02437332')}>A. baumannii Susceptible (SAMN02437332)</button>
+          <button type="button" className="text-button small" onClick={() => handleQuickSelect('SAMEA10029749')}>TB Resistant (SAMEA10029749)</button>
+          <button type="button" className="text-button small" onClick={() => handleQuickSelect('SAMEA13299636')}>TB Susceptible (SAMEA13299636)</button>
+          <button type="button" className="text-button small" onClick={() => handleQuickSelect('NOT_IN_COHORT_123')}>Try Unknown ID</button>
+        </div>
+      </div>
+
+      {activeResult && <div className="prediction-tile-grid" key={activeResult.sample}>
+        {/* Card 1: Observed Laboratory Result */}
+        <div className="prediction-tile" style={{ borderLeft: `4px solid ${activeResult.status === 'Resistant' ? 'var(--warn, #e06c75)' : activeResult.status === 'Susceptible' ? 'var(--mint, #58a6aa)' : 'var(--muted, #8b949e)'}` }}>
+          <div className="prediction-tile-top">
+            <span>{t('Observed lab result', 'प्रयोगशाला परिणाम')}</span>
+            <span className={`stat-icon ${activeResult.status === 'Resistant' || activeResult.status === 'Susceptible' ? 'mint' : 'lavender'}`}>
+              {activeResult.status === 'Resistant' ? <ShieldAlert size={22} /> : activeResult.status === 'Susceptible' ? <ShieldCheck size={22} /> : <CircleAlert size={22} />}
+            </span>
+          </div>
+          <strong style={{ fontSize: activeResult.status === 'Not Susceptible/Resistant' || activeResult.status === 'Unavailable' ? '18px' : '26px' }}>{activeResult.status || 'Unavailable'}</strong>
+          <span className="prediction-tile-caption">{activeResult.found ? t('Laboratory AST phenotype', 'Laboratory AST phenotype') : t('Not found in cohort', 'Cohort में नहीं मिला')}</span>
+          {activeResult.source_phenotypes?.length > 1 && <small>Retained binary label above. Raw AST records: {activeResult.source_phenotypes.join(', ')}.</small>}
+        </div>
+
+        {/* Card 2: Model Prediction */}
+        <div className="prediction-tile" style={{ borderLeft: `4px solid ${activeResult.predicted === 'Resistant' ? 'var(--warn, #e06c75)' : activeResult.predicted === 'Susceptible' ? 'var(--mint, #58a6aa)' : 'var(--muted, #8b949e)'}` }}>
+          <div className="prediction-tile-top">
+            <span>{t('Model prediction', 'Model prediction')}</span>
+            <span className={`stat-icon ${activeResult.predicted === 'Resistant' || activeResult.predicted === 'Susceptible' ? 'mint' : 'lavender'}`}>
+              {activeResult.predicted === 'Resistant' ? <ShieldAlert size={22} /> : activeResult.predicted === 'Susceptible' ? <ShieldCheck size={22} /> : <CircleAlert size={22} />}
+            </span>
+          </div>
+          <strong style={{ fontSize: !activeResult.predicted ? '18px' : '26px' }}>{activeResult.predicted || 'Unavailable'}</strong>
+          <span className="prediction-tile-caption">{activeResult.predicted ? (activeResult.score_source === 'model_inference' ? t('Live model inference', 'Live model inference') : activeResult.score_source === 'saved_v1_prediction' ? t('Saved V1 prediction', 'Saved V1 prediction') : t('Model output', 'Model output')) : t('Not integrated / Unavailable', 'Not integrated / Unavailable')}</span>
+        </div>
+
+        <div className="prediction-tile">
+          <div className="prediction-tile-top">
+            <span>{t('Organism & drug', 'Organism और दवा')}</span>
+            <span className="stat-icon blue"><Dna size={22} /></span>
+          </div>
+          <strong style={{ fontSize: '18px' }}>{activeResult.species || 'Unknown'}</strong>
+          <span className="prediction-tile-caption">{activeResult.drug ? `${activeResult.drug} · ${activeResult.standard || 'CLSI'}` : '—'}</span>
+        </div>
+
+        <div className="prediction-tile">
+          <div className="prediction-tile-top">
+            <span>{t('Resistance score', 'Resistance score')}</span>
+            <span className="stat-icon lavender"><Activity size={22} /></span>
+          </div>
+          <strong>{activeResult.score != null ? activeResult.score.toFixed(3) : '—'}</strong>
+          <span className="prediction-tile-caption">{activeResult.score != null ? (activeResult.score_source === 'model_inference' ? t('Model-computed probability', 'Model-computed probability') : t('Saved model score', 'Saved model score')) : t('Unavailable — model not integrated', 'Unavailable — model not integrated')}</span>
+        </div>
+      </div>}
+
+      {/* Below the cards explanation */}
+      {activeResult && <div style={{ marginTop: 20, padding: 18, background: 'var(--surface-light, rgba(255,255,255,0.02))', borderRadius: 10, border: '1px solid var(--line)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <FileText size={20} style={{ color: 'var(--accent, #58a6aa)' }} />
+          <h4 style={{ margin: 0, fontSize: 16 }}>{t('Card Analysis & Scientific Explanation', 'कार्ड विश्लेषण और वैज्ञानिक स्पष्टीकरण')}</h4>
+          <span className="pill small">{activeResult.sample || 'Query'}</span>
+        </div>
+        <p style={{ margin: '8px 0 14px', lineHeight: 1.6, fontSize: 14 }}>
+          {activeResult.explanation}
+        </p>
+
+        {activeResult.drugs?.length > 1 && <details style={{ marginTop: 12 }}>
+          <summary><strong>{t(`View all ${activeResult.drugs.length} antibiotic panels evaluated for ${activeResult.sample}`, `${activeResult.sample} के लिए सभी ${activeResult.drugs.length} जाँचे गए एंटीबायोटिक देखें`)}</strong></summary>
+          <div className="table-scroll" style={{ marginTop: 10 }}>
+            <table className="samples-table">
+              <thead><tr><th>{t('Antibiotic', 'Antibiotic')}</th><th>{t('Status', 'Status')}</th><th>{t('Testing standard', 'Testing standard')}</th><th>{t('Split', 'Split')}</th></tr></thead>
+              <tbody>
+                {activeResult.drugs.map((d, i) => <tr key={i}>
+                  <td><strong>{d.drug}</strong></td>
+                  <td><span className={`pill small ${d.status === 'Resistant' ? 'review' : 'annotated'}`}>{d.status}</span></td>
+                  <td>{d.standard || 'CLSI'}</td>
+                  <td>{d.split || '—'}</td>
+                </tr>)}
+              </tbody>
+            </table>
+          </div>
+        </details>}
+
+        <p className="card-note" style={{ marginTop: 14 }}>
+          {t('Status notes: "Observed lab result" is the reference phenotype from laboratory antimicrobial susceptibility testing. "Model prediction" is the output of the trained classifier — shown as "Unavailable" when model inference is not integrated for this species. If "Not Susceptible/Resistant" is shown, the queried identifier does not match any sequenced isolate in the reference repository. All results are development baselines; independent clinical validation is pending.', 'स्थिति नोट: "Observed lab result" प्रयोगशाला AST से प्राप्त reference phenotype है। "Model prediction" trained classifier का output है — जब model inference इस species के लिए integrated नहीं है तो "Unavailable" दिखता है। यदि "Not Susceptible/Resistant" दिखता है, तो queried ID संदर्भ रिपॉजिटरी के किसी isolate से मेल नहीं खाती। सभी results development baselines हैं; independent clinical validation बाकी है।')}
+        </p>
+      </div>}
+
+      <section className="saved-batch-panel" aria-labelledby="saved-batch-heading" style={{ marginTop: 24 }}>
+        <h3 id="saved-batch-heading">{t('Batch inspect multiple sample IDs', 'एक साथ कई sample IDs की जाँच करें')}</h3>
+        <label className="field-label" htmlFor="saved-batch-input">{t('Paste IDs separated by commas, spaces or new lines', 'IDs को comma, space या नई line से अलग करके paste करें')}
+          <textarea id="saved-batch-input" rows={3} maxLength={20000} value={batchText} onChange={e => { setBatchText(e.target.value); setBatchMatches(null); }} placeholder="SAMN48878206&#10;SAMN06641883&#10;SAMN04211933&#10;SAMN02437332&#10;SAMEA10029749&#10;UNKNOWN_ID" />
+        </label>
+        <div className="saved-batch-actions">
+          <button type="button" className="button primary" disabled={!batchText.trim()} onClick={() => {
+            const ids = [...new Set(batchText.trim().split(/[\s,;]+/).filter(Boolean))];
+            const matched = ids.map(sid => {
+              const rec = allExamples.find(r => r.sample.toUpperCase() === sid.toUpperCase());
+              return { sample: sid, record: rec || null };
+            });
+            setBatchMatches(matched);
+          }}>
+            {t('Inspect batch IDs', 'Batch IDs जाँचें')}
+          </button>
+          <button type="button" className="button" onClick={() => {
+            const demo = 'SAMN48878206\nSAMN06641883\nSAMN04211933\nSAMN02437332\nSAMEA10029749\nUNKNOWN_01';
+            setBatchText(demo);
+            const ids = demo.split('\n');
+            setBatchMatches(ids.map(sid => ({ sample: sid, record: allExamples.find(r => r.sample.toUpperCase() === sid.toUpperCase()) || null })));
+          }}>
+            {t('Load multi-species demo batch', 'Multi-species demo batch भरें')}
+          </button>
+        </div>
+        {batchMatches !== null && <>
+          <p role="status">{batchMatches.filter(r => r.record).length} {t('matched in cohort', 'cohort में मिले')} · {batchMatches.filter(r => !r.record).length} {t('Not Susceptible/Resistant (not found)', 'Not Susceptible/Resistant (नहीं मिले)')}</p>
+          <div className="table-scroll">
+            <table className="samples-table">
+              <thead><tr><th>Sample ID</th><th>{t('Species', 'Species')}</th><th>{t('Resistance status', 'Resistance status')}</th><th>{t('Drug', 'Drug')}</th><th>{t('Score', 'Score')}</th><th>{t('Action', 'Action')}</th></tr></thead>
+              <tbody>
+                {batchMatches.map(({ sample: sid, record }) => (
+                  <tr key={sid}>
+                    <td className="mono"><strong>{sid}</strong></td>
+                    <td>{record?.species || '—'}</td>
+                    <td>
+                      <span className={`pill small ${record?.predicted === 'Resistant' ? 'review' : record?.predicted === 'Susceptible' ? 'annotated' : ''}`}>
+                        {record?.predicted || (record?.observed ? `${record.observed} (lab)` : 'Unavailable')}
+                      </span>
+                    </td>
+                    <td>{record?.drug || '—'}</td>
+                    <td className="mono">{record?.score != null ? record.score.toFixed(3) : '—'}</td>
+                    <td>
+                      <button type="button" className="text-button small" onClick={() => handleQuickSelect(sid)}>{t('Inspect cards', 'Cards में देखें')}</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>}
+      </section>
+      <small style={{ marginTop: 12, display: 'block' }}>Sources: results/ceftazidime_clsi_test_predictions_v1.csv · data/processed/multispecies/escherichia_coli/ · data/processed/multispecies/acinetobacter_baumannii/ · data/processed/multispecies/tuberculosis/</small>
+    </div>
+  </section>;
+}
+
 function Overview({ data, explore, navigate, onSelect }) {
   const { t } = useUI();
   const { cohort: c, pipeline: p, model: m } = data;
   const recent = data.samples.filter(s => s.annotated).slice(-5).reverse();
   return <>
     <section className="hero-card"><div className="hero-copy"><span className="eyebrow light"><span className="live-dot" />{p.status === 'running' ? t('SEQUENCE EXPANSION IN PROGRESS', 'SEQUENCE EXPANSION चालू है') : t('GENOMIC SURVEILLANCE WORKSPACE', 'GENOMIC SURVEILLANCE WORKSPACE')}</span><h2>{t('Every sequence tells a story.', 'हर sequence की अपनी कहानी है।')}<br /><span>{t('Find the signal.', 'उसका संकेत पहचानें।')}</span></h2><p>{t('Follow your genomes from raw data to resistance insights.', 'Raw data से resistance insights तक अपने genomes को track करें।')}</p><button className="hero-link" onClick={() => navigate('workflow')}>{t('Explore the workflow', 'Workflow देखें')}<ArrowUpRight size={16} /></button></div><div className="hero-art"><GenomeArt /></div><div className="hero-progress"><ProgressRing completed={p.completed} total={p.total} /><span>{t('Assembly annotation', 'Assembly annotation')}</span><small>{p.status === 'running' ? t('Processing live', 'Processing चालू है') : p.status}</small></div></section>
+    <PresentationPrediction examples={data.presentation_examples} speciesExamples={data.species_examples} abScreen={data.ab_external_screen} />
+    <SpeciesSummary data={data} />
     <div className="stats-grid">{[
       { icon: Database, label: t('Development cohort', 'Development cohort'), value: format(c.total), suffix: t('genomes', 'genomes'), detail: `${c.projects} BioProjects · CLSI`, color: 'mint' },
       { icon: Dna, label: t('Genomes annotated', 'Annotated genomes'), value: format(c.annotated), suffix: `/ ${c.total}`, detail: `${c.read_completed} ${t('read-derived genomes included', 'read-derived genomes शामिल')}`, color: 'sand' },
       { icon: Activity, label: t('V2 selection accuracy', 'V2 selection accuracy'), value: pct(m.metrics.accuracy), detail: t('Development CV · independent test pending', 'Development CV · स्वतंत्र test बाकी'), color: 'blue' },
       { icon: ShieldCheck, label: t('Quality screens', 'Quality screens'), value: format(c.qc_screened), suffix: t('genomes', 'genomes'), detail: t('Species, assembly & pilot read checks', 'Species, assembly और pilot read checks'), color: 'lavender' },
-    ].map(({ icon: Icon, ...stat }) => <section className="stat-card" key={stat.label}><div className="stat-top"><span>{stat.label}</span><span className={`stat-icon ${stat.color}`}><Icon size={17} /></span></div><div className="stat-value">{stat.value}<small>{stat.suffix}</small></div><p>{stat.detail}</p></section>)}</div>
-    <ScoreSummary model={m} />
-    {data.multispecies && <section className="card"><CardHead title={t('Multispecies development', 'Multispecies development')} subtitle={t('Saved unsupervised audits and supervised baselines', 'Saved unsupervised audits और supervised baselines')} /><div className="table-scroll"><table className="samples-table"><thead><tr><th>{t('Species', 'Species')}</th><th>{t('Encoded samples', 'Encoded samples')}</th><th>{t('Supervised tasks', 'Supervised tasks')}</th><th>{t('Anomaly rank stability', 'Anomaly rank stability')}</th></tr></thead><tbody>{data.multispecies.species.map(s => <tr key={s.species}><td><strong>{s.species}</strong><small>{s.status}</small></td><td className="mono">{format(s.encoded_samples)}</td><td className="mono">{s.eligible_tasks_trained}</td><td className="mono">{s.anomaly_rank_correlation ? `${s.anomaly_rank_correlation[0].toFixed(3)}–${s.anomaly_rank_correlation[1].toFixed(3)}` : '—'}</td></tr>)}</tbody></table></div><p className="card-note">{t('TB cohort preprocessing is complete; genomic feature construction is still pending. External validation remains separate.', 'TB cohort preprocessing complete है; genomic feature construction बाकी है। External validation अलग pending है।')}</p></section>}
+    ].map(({ icon: Icon, ...stat }) => <section className="stat-card rgb-card" tabIndex={0} key={stat.label}><div className="stat-top"><span>{stat.label}</span><span className={`stat-icon ${stat.color}`}><Icon size={17} /></span></div><div className="stat-value">{stat.value}<small>{stat.suffix}</small></div><p>{stat.detail}</p></section>)}</div>
+    <ScoreSummary model={m} multispecies={data.multispecies} />
+    {data.multispecies && <section className="card"><CardHead title={t('Multispecies development', 'Multispecies development')} subtitle={t('Saved development baselines · all results require independent validation', 'Saved development baselines · सभी results को independent validation की ज़रूरत है')} /><div className="table-scroll"><table className="samples-table"><thead><tr><th>{t('Species', 'Species')}</th><th>{t('Encoded samples', 'Encoded samples')}</th><th>{t('Supervised tasks trained', 'Supervised tasks trained')}</th><th>{t('Unsupervised (cluster/SVD/anomaly)', 'Unsupervised (cluster/SVD/anomaly)')}</th><th>{t('Anomaly rank stability', 'Anomaly rank stability')}</th></tr></thead><tbody>{data.multispecies.species.map(s => <tr key={s.species}><td><strong>{s.species}</strong><small>{s.status}</small></td><td className="mono">{format(s.encoded_samples)}</td><td className="mono">{s.eligible_tasks_trained > 0 ? s.eligible_tasks_trained : '—'}{s.drugs_skipped > 0 ? <small> ({s.drugs_skipped} skipped)</small> : null}</td><td className="mono">{s.unsupervised_available === false ? <span style={{color:'var(--muted)'}}>Not available</span> : s.clustering?.selected_k ? `k=${s.clustering.selected_k}` : '—'}</td><td className="mono">{s.anomaly_rank_correlation ? `${s.anomaly_rank_correlation[0].toFixed(3)}–${s.anomaly_rank_correlation[1].toFixed(3)}` : '—'}</td></tr>)}</tbody></table></div><p className="card-note">{t('Development baselines only. Independent validation is pending for all species. Supervised and unsupervised results are separate analyses; they are not combined.', 'केवल development baselines। सभी species के लिए independent validation बाकी है। Supervised और unsupervised results अलग-अलग analyses हैं; इन्हें combine नहीं किया गया है।')}</p></section>}
     <div className="dashboard-row"><section className="card model-overview"><CardHead title={t('Performance across folds', 'Folds में performance')} subtitle={t('V2 development selection · recall by class', 'V2 development selection · class recall')}><button className="text-button" onClick={() => navigate('models')}>{t('Model details', 'Model विवरण')}<ArrowUpRight size={14} /></button></CardHead><FoldBars folds={m.folds} /><div className="card-note"><span className="small-dot" />{t('Variation across projects remains important. Fresh independent validation is required.', 'Projects के बीच variation मौजूद है। नई स्वतंत्र validation ज़रूरी है।')}</div></section><section className="card"><CardHead title={t('Your genome sources', 'आपके genome sources')} subtitle={t('Frozen development cohort', 'Frozen development cohort')} /><SourceDonut total={c.total} label={t('genomes', 'genomes')} data={[{ name: t('Assemblies', 'Assemblies'), value: c.assembly_sources }, { name: t('Paired reads', 'Paired reads'), value: c.read_sources }]} /><div className="source-bottom"><div><span className="live-dot" /><strong>{p.sources_verified}</strong> {t('assembly sources verified', 'assembly sources verified')}</div><small>{t('Checksums and sample identity are recorded.', 'Checksums और sample identity दर्ज हैं।')}</small></div></section></div>
     <section className="card"><CardHead title={t('Recently annotated genomes', 'हाल में annotated genomes')} subtitle={t('Genomic evidence is ready for the next quality check.', 'Genomic evidence अगली quality check के लिए तैयार है।')}><button className="text-button" onClick={() => navigate('genomes')}>{t('View all genomes', 'सभी genomes देखें')}<ArrowRight size={15} /></button></CardHead>{recent.length ? <SampleTable samples={recent} compact onSelect={onSelect} /> : <Empty text={t('Waiting for the first annotated genomes.', 'पहले annotated genomes की प्रतीक्षा है।')} />}</section>
     <div className="overview-footer"><span><ShieldCheck size={14} />{t('Research workspace · Every result has a source.', 'Research workspace · हर result का source है।')}</span><button className="text-button" onClick={() => navigate('workflow')}><Play size={13} />{t('Watch the project explainer', 'प्रोजेक्ट वीडियो देखें')}</button></div>
@@ -58,28 +383,126 @@ function Genomes({ data, onSelect, globalSearch, setGlobalSearch }) {
   return <section className="card genome-card"><div className="genome-toolbar"><div className="table-tabs">{[['all', t('All genomes', 'सभी genomes')], ['annotated', t('Annotated', 'Annotated')], ['queued', t('Queued', 'कतार में')], ['review', t('Review flags', 'Review flags')]].map(([key, label]) => <button key={key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}<span>{key === 'all' ? data.samples.length : data.cohort.counts[key]}</span></button>)}</div><div className="filter-row"><div className="search-box"><Search size={16} /><input aria-label="Search genomes" placeholder={t('Search BioSample, isolate or project…', 'BioSample, isolate या project खोजें…')} value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />{globalSearch && <button onClick={() => setGlobalSearch('')} aria-label="Clear search"><X size={14} /></button>}</div><select aria-label="Filter source" value={source} onChange={e => setSource(e.target.value)}><option value="all">{t('All sources', 'सभी sources')}</option><option value="assembly">Assembly</option><option value="reads">Paired reads</option></select><a className="button small" href="/api/reports/queue"><Download size={15} />{t('Export cohort', 'Cohort export')}</a></div></div>{filtered.length ? <SampleTable samples={filtered.slice(current * 15, current * 15 + 15)} onSelect={onSelect} /> : <Empty text={t('No genomes match these filters.', 'इन filters से कोई genome नहीं मिला।')} />}<div className="pagination"><span>{filtered.length ? `${current * 15 + 1}–${Math.min(current * 15 + 15, filtered.length)}` : '0'} {t('of', '/')} {filtered.length} {t('genomes', 'genomes')}</span><div><button className="icon-button" disabled={current === 0} onClick={() => setPage(current - 1)} aria-label="Previous page"><ChevronLeft size={17} /></button><span>{current + 1} / {pages}</span><button className="icon-button" disabled={current + 1 >= pages} onClick={() => setPage(current + 1)} aria-label="Next page"><ChevronRight size={17} /></button></div></div></section>;
 }
 
-function Explore({ data }) {
+function Explore({ data, dashboard }) {
+  const { t } = useUI();
+  const [species, setSpecies] = useState('all');
+  const summary = dashboard.multispecies;
+  const cohorts = [
+    { id: 'original', name: 'K. pneumoniae', count: data?.total, status: t('Original exploratory cohort', 'Original exploratory cohort'), source: 'results/sample_analysis.csv' },
+    ...(summary?.species || []).map(s => { const pathId = s.id || (s.species === 'E. coli' ? 'escherichia_coli' : s.species === 'A. baumannii' ? 'acinetobacter_baumannii' : 'tuberculosis'); const srcPath = s.unsupervised_available === false ? `data/processed/multispecies/${pathId}/supervised_models/report.json` : `data/processed/multispecies/${pathId}/unsupervised_profiles/report.json`; return { id: s.species, name: s.species, count: s.encoded_samples, status: s.status, source: srcPath }; }),
+  ];
+  const selected = cohorts.find(c => c.id === species);
+  const visible = selected ? [selected] : cohorts;
+  const maxCount = Math.max(1, ...cohorts.map(c => c.count || 0));
+  return <>
+    <section className="card"><CardHead title={t('Explore by species', 'Species के अनुसार डेटा देखें')} subtitle={t('Connected to saved cohort reports', 'Saved cohort reports से जुड़ा हुआ')} /><label htmlFor="explore-species">{t('Species / cohort', 'Species / cohort')} </label><select id="explore-species" value={species} onChange={e => setSpecies(e.target.value)}><option value="all">{t('All species — cohort sizes', 'सभी species — cohort sizes')}</option>{cohorts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></section>
+    {species === 'original' ? <OriginalExplore data={data} /> : <>
+      <section className="card"><CardHead title={selected ? selected.name : t('Saved cohort sizes', 'Saved cohort sizes')} subtitle={t('Sample counts; each cohort has a separate scope', 'Sample counts; हर cohort का scope अलग है')} />
+        {visible.map(c => <div key={c.id} style={{ margin: '24px 0' }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}><strong>{c.name}</strong><strong>{c.count == null ? t('Unavailable', 'उपलब्ध नहीं') : `${format(c.count)} samples`}</strong></div><div style={{ height: 16, background: 'var(--line)', borderRadius: 8, marginTop: 10 }}><div role="img" aria-label={`${c.name}: ${c.count ?? 'unavailable'} samples`} style={{ height: '100%', width: `${(c.count || 0) / maxCount * 100}%`, background: '#58a6aa', borderRadius: 8 }} /></div><p>{c.status}</p><small style={{ overflowWrap: 'anywhere' }}>{t('Source', 'स्रोत')}: {c.source}</small></div>)}
+        <p className="card-note">{t('Bar lengths use the largest saved cohort as their common scale. These counts are not a combined training set or population prevalence.', 'Bars का common scale सबसे बड़ा saved cohort है। ये counts combined training set या population prevalence नहीं हैं।')}</p>
+      </section>
+      {['E. coli', 'A. baumannii'].includes(species) && <UnsupervisedResults key={species} summary={summary} cohortId={summary.species.find(s => s.species === species)?.id} />}
+      {species === 'M. tuberculosis' && <p className="card-note">{t('TB supervised prediction is pending.', 'TB supervised prediction अभी pending है।')}</p>}
+    </>}
+  </>;
+}
+
+function OriginalExplore({ data }) {
   const { t } = useUI();
   if (!data) return <Empty text={t('Loading exploratory data…', 'Exploratory data लोड हो रहा है…')} />;
   return <><div className="info-banner"><FlaskConical size={19} /><div><strong>{t('Original exploratory cohort', 'Original exploratory cohort')} · {format(data.total)} {t('isolates', 'isolates')}</strong><p>{t('These unsupervised results are separate from the 445-sample supervised development cohort. An anomaly flag is a review signal.', 'ये unsupervised results, 445-sample supervised cohort से अलग हैं। Anomaly flag एक review signal है।')}</p></div></div><div className="dashboard-row"><section className="card"><CardHead title={t('Where unusual profiles emerge', 'असामान्य profiles कहाँ हैं')} subtitle={t('Gene count × anomaly score', 'Gene count × anomaly score')} /><Scatter data={data} /></section><section className="card"><CardHead title={t('Cluster composition', 'Cluster composition')} subtitle={`${data.clusters.length} ${t('exploratory clusters', 'exploratory clusters')}`} /><SourceDonut total={data.total} label={t('isolates', 'isolates')} data={data.clusters.map(d => ({ name: d.name, value: d.count }))} /></section></div><section className="card"><CardHead title={t('The genomic pattern', 'Genomic pattern')} subtitle={t('Gene prevalence by cluster · eight genes with the highest overall presence/absence variance', 'Cluster के अनुसार gene prevalence · presence/absence variance के अनुसार आठ genes')}><Pill>{format(data.heatmap.matched_samples)} {t('matched isolates', 'matched isolates')}</Pill></CardHead><Heatmap data={data.heatmap} /><p className="card-note">{t('Cell values show the percentage of isolates with the gene in each cluster. Prevalence does not establish resistance.', 'Cell values हर cluster में gene वाले isolates का प्रतिशत हैं। Prevalence से resistance साबित नहीं होता।')}</p></section><div className="dashboard-row"><section className="card"><CardHead title={t('Where the data comes from', 'डेटा कहाँ से आया')} subtitle={t('Top six reported locations · original cohort', 'छह प्रमुख reported locations · original cohort')} /><CountryBars data={data.countries} /></section><section className="card review-summary"><div className="review-symbol"><ScanIcon /></div><span className="eyebrow">{t('A STARTING POINT FOR REVIEW', 'REVIEW की शुरुआत')}</span><h3>{format(data.review_count)} <span>{t('flagged profiles', 'flagged profiles')}</span></h3><p>{t('Anomaly detection identifies unusual genomic patterns. Review the underlying evidence before interpreting biological or clinical significance.', 'Anomaly detection असामान्य genomic patterns पहचानता है। Biological या clinical interpretation से पहले evidence की समीक्षा करें।')}</p><div className="review-note">{t('Source: saved sample analysis', 'Source: saved sample analysis')}</div></section></div></>;
 }
 function ScanIcon() { return <ChartScatter size={30} />; }
 
-function ScoreSummary({ model }) {
+function ScoreSummary({ model, multispecies }) {
   const { t } = useUI();
-  const scores = [
-    { label: t('Training score · V2', 'Training score · V2'), value: model.measured_scores?.train?.accuracy, status: t('Not recorded', 'दर्ज नहीं है'), detail: t('Accuracy on 445 training samples (seen during fitting).', '445 training samples पर accuracy; model ने इन्हें training में देखा है।') },
-    { label: t('Validation score · V2', 'Validation score · V2'), value: model.metrics.accuracy, status: t('Not measured', 'मापा नहीं गया'), detail: t('Mean accuracy across 3 development folds; used for model selection.', '3 development folds की औसत accuracy; model selection में इस्तेमाल हुई।') },
-    { label: t('Historical testing score · V2', 'Historical testing score · V2'), value: model.measured_scores?.test?.accuracy, status: t('Pending', 'बाकी है'), detail: t('114 historical test samples; reused during research. Fresh independent testing remains pending.', '114 पुराने test samples; research में पहले इस्तेमाल हुए। नई independent testing अभी बाकी है।') },
-  ];
-  return <section className="card"><CardHead title={t('Training, validation & testing', 'Training, validation और testing')} subtitle={t('Accuracy · saved V2 baseline', 'Accuracy · saved V2 baseline')} /><div className="score-summary-grid">{scores.map(s => <div className="stat-card" key={s.label}><span className="muted">{s.label}</span><div className="stat-value" style={s.value == null ? { fontSize: '22px' } : undefined}>{s.value == null ? s.status : pct(s.value)}</div><p>{s.detail}</p></div>)}</div><p className="card-note">{t('Validation balanced accuracy', 'Validation balanced accuracy')}: {pct(model.metrics.balanced_accuracy)}. {t('Historical testing accuracy · V1', 'पुरानी testing accuracy · V1')}: {pct(model.legacy_metrics.accuracy)} · {t('114 samples. This is a different model, not the V2 test score.', '114 samples। यह अलग model है, V2 का test score नहीं।')}</p></section>;
+  const [activeSpecies, setActiveSpecies] = useState('kp');
+  const speciesList = multispecies?.species || [];
+  const ec = speciesList.find(s => s.id === 'escherichia_coli');
+  const ab = speciesList.find(s => s.id === 'acinetobacter_baumannii');
+  const tb = speciesList.find(s => s.id === 'tuberculosis');
+
+  let cards = [];
+  let note = '';
+  let perDrug = [];
+
+  if (activeSpecies === 'kp') {
+    cards = [
+      { label: t('Training score · V2', 'Training score · V2'), value: model.measured_scores?.train?.accuracy, status: t('Not recorded', 'दर्ज नहीं है'), detail: t('Accuracy on 445 training samples (seen during fitting).', '445 training samples पर accuracy; model ने इन्हें training में देखा है।') },
+      { label: t('Validation score · V2', 'Validation score · V2'), value: model.metrics.accuracy, status: t('Not measured', 'मापा नहीं गया'), detail: t('Mean accuracy across 3 development folds; used for model selection.', '3 development folds की औसत accuracy; model selection में इस्तेमाल हुई।') },
+      { label: t('Historical testing score · V2', 'Historical testing score · V2'), value: model.measured_scores?.test?.accuracy, status: t('Pending', 'बाकी है'), detail: t('114 historical test samples; reused during research. Fresh independent testing remains pending.', '114 पुराने test samples; research में पहले इस्तेमाल हुए। नई independent testing अभी बाकी है।') },
+    ];
+    note = `${t('Validation balanced accuracy', 'Validation balanced accuracy')}: ${pct(model.metrics.balanced_accuracy)}. ${t('Historical testing accuracy · V1', 'पुरानी testing accuracy · V1')}: ${pct(model.legacy_metrics.accuracy)} · 114 samples. V2 research selection model.`;
+  } else {
+    const cur = activeSpecies === 'ec' ? ec : activeSpecies === 'ab' ? ab : tb;
+    const scores = cur?.scores || {};
+    cards = [
+      {
+        label: t('Training score', 'Training score'),
+        value: scores.train?.accuracy,
+        status: t('Trained', 'Trained'),
+        detail: scores.train ? `Macro accuracy across ${scores.train.tasks} drugs. Balanced: ${pct(scores.train.balanced_accuracy)} · F1: ${pct(scores.train.f1_resistant)} · ROC AUC: ${pct(scores.train.roc_auc)}` : t('Data not loaded', 'डेटा लोड नहीं हुआ')
+      },
+      {
+        label: t('Validation score', 'Validation score'),
+        value: scores.validation?.accuracy,
+        status: t('Validated', 'Validated'),
+        detail: scores.validation ? `Macro accuracy on held-out validation split. Balanced: ${pct(scores.validation.balanced_accuracy)} · F1: ${pct(scores.validation.f1_resistant)} · ROC AUC: ${pct(scores.validation.roc_auc)}` : t('Data not loaded', 'डेटा लोड नहीं हुआ')
+      },
+      {
+        label: t('Testing score', 'Testing score'),
+        value: scores.test?.accuracy,
+        status: t('Tested', 'Tested'),
+        detail: scores.test ? `Macro accuracy on isolated test split. Balanced: ${pct(scores.test.balanced_accuracy)} · F1: ${pct(scores.test.f1_resistant)} · ROC AUC: ${pct(scores.test.roc_auc)}` : t('Data not loaded', 'डेटा लोड नहीं हुआ')
+      },
+    ];
+    note = `${cur?.species || 'Species'}: ${cur?.eligible_tasks_trained || 0} tasks trained. Split policy: Group-aware train/val/test split (no isolate leakage). Development baselines only; independent validation pending.`;
+    perDrug = cur?.per_drug_metrics || [];
+  }
+
+  return <section className="card">
+    <CardHead title={t('Training, validation & testing scores', 'Training, validation और testing scores')} subtitle={t('Multi-species resistance models · development baselines', 'Multi-species resistance models · development baselines')}>
+      <div className="table-tabs" style={{ marginBottom: 0 }}>
+        {[['kp', 'K. pneumoniae'], ['ec', 'E. coli'], ['ab', 'A. baumannii'], ['tb', 'M. tuberculosis']].map(([k, name]) => (
+          <button key={k} className={activeSpecies === k ? 'active' : ''} onClick={() => setActiveSpecies(k)}>{name}</button>
+        ))}
+      </div>
+    </CardHead>
+    <div className="score-summary-grid">
+      {cards.map(s => <div className="stat-card rgb-card" tabIndex={0} key={s.label}>
+        <span className="muted">{s.label}</span>
+        <div className="stat-value" style={s.value == null ? { fontSize: '22px' } : undefined}>{s.value == null ? s.status : pct(s.value)}</div>
+        <p>{s.detail}</p>
+      </div>)}
+    </div>
+    {perDrug.length > 0 && <details style={{ marginTop: 14 }}>
+      <summary>{t(`View per-drug training/val/test breakdown for ${activeSpecies === 'ec' ? 'E. coli' : activeSpecies === 'ab' ? 'A. baumannii' : 'M. tuberculosis'} (${Math.round(perDrug.length / 3)} drugs)`, `प्रति-दवा विवरण देखें (${Math.round(perDrug.length / 3)} दवाएँ)`)}</summary>
+      <div className="table-scroll">
+        <table className="samples-table">
+          <thead><tr><th>{t('Antibiotic', 'Antibiotic')}</th><th>{t('Split', 'Split')}</th><th>{t('Samples', 'Samples')}</th><th>{t('Accuracy', 'Accuracy')}</th><th>{t('Balanced Acc', 'Balanced Acc')}</th><th>{t('F1 (Resistant)', 'F1 (Resistant)')}</th><th>{t('ROC AUC', 'ROC AUC')}</th></tr></thead>
+          <tbody>
+            {perDrug.map((d, i) => <tr key={i}>
+              <td><strong>{d.antibiotic || d.drug}</strong></td>
+              <td><span className="pill small">{d.split}</span></td>
+              <td className="mono">{d.samples || d.test_samples || '—'}</td>
+              <td className="mono">{pct(d.accuracy || d.test_accuracy)}</td>
+              <td className="mono">{pct(d.balanced_accuracy || d.test_balanced_acc)}</td>
+              <td className="mono">{pct(d.f1_resistant || d.test_f1_resistant)}</td>
+              <td className="mono">{pct(d.roc_auc || d.test_roc_auc)}</td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
+    </details>}
+    <p className="card-note">{note}</p>
+  </section>;
 }
 
-function Models({ model }) {
+function Models({ model, multispecies }) {
   const { t } = useUI();
   const [tab, setTab] = useState('development');
   const m = model.metrics, legacy = model.legacy_metrics;
-  return <><ScoreSummary model={model} /><div className="model-banner"><span className="model-mark"><GitBranch size={25} /></span><div><span className="eyebrow">{t('SAVED RESEARCH BASELINE', 'SAVED RESEARCH BASELINE')}</span><h2>Random forest <Pill>V2</Pill></h2><p>{model.name} · {t('Decision threshold', 'Decision threshold')} {model.threshold}</p></div><Pill status="review">{t('Fresh validation required', 'नई validation ज़रूरी')}</Pill></div><div className="page-tabs"><button className={tab === 'development' ? 'active' : ''} onClick={() => setTab('development')}>{t('V2 development selection', 'V2 development selection')}</button><button className={tab === 'legacy' ? 'active' : ''} onClick={() => setTab('legacy')}>{t('V1 historical test', 'V1 historical test')}</button></div>{tab === 'development' ? <><div className="stats-grid model-stats">{[[t('Accuracy', 'Accuracy'), m.accuracy], [t('Balanced accuracy', 'Balanced accuracy'), m.balanced_accuracy], [t('Susceptible recall', 'Susceptible recall'), m.S_recall], [t('Resistant recall', 'Resistant recall'), m.R_recall]].map(([label, value]) => <div className="stat-card" key={label}><span className="muted">{label}</span><div className="stat-value">{pct(value)}</div><small>{t('Development selection score', 'Development selection score')}</small></div>)}</div><div className="info-banner"><CircleAlert size={20} /><p>{t('These folds were used to choose the model and threshold. Their scores are not independent test accuracy. The expanded sequence model has not been evaluated yet.', 'इन folds से model और threshold चुने गए हैं। ये independent test accuracy नहीं हैं। Expanded sequence model की evaluation अभी नहीं हुई है।')}</p></div><section className="card"><CardHead title={t('Generalization across projects', 'Projects के बीच generalization')} subtitle={t('Three BioProject-separated development folds', 'तीन BioProject-अलग development folds')} /><FoldBars folds={model.folds} /></section><section className="card"><CardHead title={t('Candidate comparison', 'Candidate comparison')} subtitle={t('Saved development selection leaderboard', 'Saved development selection leaderboard')} /><div className="table-scroll"><table className="samples-table"><thead><tr><th>{t('Candidate', 'Candidate')}</th><th>{t('Threshold', 'Threshold')}</th><th>{t('Accuracy', 'Accuracy')}</th><th>{t('Balanced accuracy', 'Balanced accuracy')}</th></tr></thead><tbody>{model.candidates.map((c, i) => <tr key={`${c.name}-${i}`}><td><strong>{c.name}</strong>{i === 0 && <Pill status="annotated">{t('Selected', 'चुना गया')}</Pill>}</td><td className="mono">{c.threshold}</td><td className="mono">{pct(c.accuracy)}</td><td className="mono">{pct(c.balanced_accuracy)}</td></tr>)}</tbody></table></div></section></> : <><div className="info-banner"><CircleAlert size={20} /><p>{t('Historical V1 evaluation on 114 reserved samples. These results informed subsequent work, so this cohort is no longer untouched for future versions.', '114 reserved samples पर पुराने V1 का मूल्यांकन। इन results से आगे का काम प्रभावित हुआ है, इसलिए भविष्य के versions के लिए यह untouched cohort नहीं है।')}</p></div><div className="dashboard-row"><section className="card"><CardHead title={t('V1 confusion matrix', 'V1 confusion matrix')} subtitle={t('114 samples · counts, not percentages', '114 samples · counts, प्रतिशत नहीं')} /><Confusion values={model.legacy_confusion} /></section><section className="card"><CardHead title={t('Historical performance', 'पुराना performance')} subtitle={t('Saved V1 reserved-test metrics', 'Saved V1 reserved-test metrics')} /><div className="metric-list">{Object.entries(legacy).map(([k, v]) => <div key={k}><span>{k.replaceAll('_', ' ')}</span><strong>{pct(v)}</strong></div>)}</div></section></div></>}</>;
+  return <><ScoreSummary model={model} multispecies={multispecies} /><div className="model-banner"><span className="model-mark"><GitBranch size={25} /></span><div><span className="eyebrow">{t('SAVED RESEARCH BASELINE', 'SAVED RESEARCH BASELINE')}</span><h2>Random forest <Pill>V2</Pill></h2><p>{model.name} · {t('Decision threshold', 'Decision threshold')} {model.threshold}</p></div><Pill status="review">{t('Fresh validation required', 'नई validation ज़रूरी')}</Pill></div><div className="page-tabs"><button className={tab === 'development' ? 'active' : ''} onClick={() => setTab('development')}>{t('V2 development selection', 'V2 development selection')}</button><button className={tab === 'legacy' ? 'active' : ''} onClick={() => setTab('legacy')}>{t('V1 historical test', 'V1 historical test')}</button></div>{tab === 'development' ? <><div className="stats-grid model-stats">{[[t('Accuracy', 'Accuracy'), m.accuracy], [t('Balanced accuracy', 'Balanced accuracy'), m.balanced_accuracy], [t('Susceptible recall', 'Susceptible recall'), m.S_recall], [t('Resistant recall', 'Resistant recall'), m.R_recall]].map(([label, value]) => <div className="stat-card" key={label}><span className="muted">{label}</span><div className="stat-value">{pct(value)}</div><small>{t('Development selection score', 'Development selection score')}</small></div>)}</div><div className="info-banner"><CircleAlert size={20} /><p>{t('These folds were used to choose the model and threshold. Their scores are not independent test accuracy. The expanded sequence model has not been evaluated yet.', 'इन folds से model और threshold चुने गए हैं। ये independent test accuracy नहीं हैं। Expanded sequence model की evaluation अभी नहीं हुई है।')}</p></div><section className="card"><CardHead title={t('Generalization across projects', 'Projects के बीच generalization')} subtitle={t('Three BioProject-separated development folds', 'तीन BioProject-अलग development folds')} /><FoldBars folds={model.folds} /></section><section className="card"><CardHead title={t('Candidate comparison', 'Candidate comparison')} subtitle={t('Saved development selection leaderboard', 'Saved development selection leaderboard')} /><div className="table-scroll"><table className="samples-table"><thead><tr><th>{t('Candidate', 'Candidate')}</th><th>{t('Threshold', 'Threshold')}</th><th>{t('Accuracy', 'Accuracy')}</th><th>{t('Balanced accuracy', 'Balanced accuracy')}</th></tr></thead><tbody>{model.candidates.map((c, i) => <tr key={`${c.name}-${i}`}><td><strong>{c.name}</strong>{i === 0 && <Pill status="annotated">{t('Selected', 'चुना गया')}</Pill>}</td><td className="mono">{c.threshold}</td><td className="mono">{pct(c.accuracy)}</td><td className="mono">{pct(c.balanced_accuracy)}</td></tr>)}</tbody></table></div></section></> : <><div className="info-banner"><CircleAlert size={20} /><p>{t('Historical V1 evaluation on 114 reserved samples. These results informed subsequent work, so this cohort is no longer untouched for future versions.', '114 reserved samples पर पुराने V1 का मूल्यांकन। इन results से आगे का काम प्रभावित हुआ है, इसलिए भविष्य के versions के लिए यह untouched cohort नहीं है।')}</p></div><div className="dashboard-row"><section className="card"><CardHead title={t('V1 confusion matrix', 'V1 confusion matrix')} subtitle={t('114 samples · counts, not percentages', '114 samples · counts, प्रतिशत नहीं')} /><Confusion values={model.legacy_confusion} /></section><section className="card"><CardHead title={t('Historical performance', 'पुराना performance')} subtitle={t('Saved V1 reserved-test metrics', 'Saved V1 reserved-test metrics')} /><div className="metric-list">{Object.entries(legacy).map(([k, v]) => <div key={k}><span>{k.replaceAll('_', ' ')}</span><strong>{pct(v)}</strong></div>)}</div></section></div></>}</>;
 }
 
 function Reports({ reports }) {
@@ -96,23 +519,11 @@ function SampleDetails({ sample: s, close }) {
   const { t } = useUI();
   const returnFocus = useRef(document.activeElement);
   useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const listener = e => {
-      if (e.key === 'Escape') close();
-      if (e.key === 'Tab') {
-        const nodes = [...document.querySelectorAll('.sample-drawer button, .sample-drawer a[href], .sample-drawer [tabindex="0"]')];
-        const first = nodes[0], last = nodes.at(-1);
-        if ((e.shiftKey && document.activeElement === first) || (!e.shiftKey && document.activeElement === last)) {
-          e.preventDefault(); (e.shiftKey ? last : first)?.focus();
-        }
-      }
-    };
-    document.addEventListener('keydown', listener);
-    return () => { document.removeEventListener('keydown', listener); document.body.style.overflow = previousOverflow; };
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    addEventListener('keydown', onKey);
+    return () => { removeEventListener('keydown', onKey); returnFocus.current?.focus?.(); };
   }, [close]);
-  useEffect(() => () => returnFocus.current?.focus(), []);
-  return <div className="drawer-backdrop" onClick={close}><aside className="sample-drawer" role="dialog" aria-modal="true" aria-label="Genome details" onClick={e => e.stopPropagation()}><header><span className="eyebrow">{t('GENOME DETAILS', 'GENOME विवरण')}</span><button className="icon-button" autoFocus onClick={close} aria-label="Close details"><X size={20} /></button></header><span className="drawer-genome"><Dna size={33} /></span><h2>{s.id}</h2><p className="muted">{s.isolate}</p><Pill status={s.status}>{s.status}</Pill><div className="detail-list">{[['BioProject', s.project], [t('Source', 'Source'), s.source], ['Assembly', s.assembly || '—'], ['SRA run', s.run || '—'], [t('Observed phenotype', 'Observed phenotype'), s.phenotype], [t('Species screen', 'Species screen'), s.species || t('Pending', 'बाकी')], ['AMR report hits', s.amr_hits ?? '—'], ['Feature count', s.features ?? '—'], ['Contigs', s.contigs ?? '—'], ['N50', s.n50 == null ? '—' : `${format(s.n50)} bp`], ['Assembly size', s.length_bp == null ? '—' : `${(s.length_bp / 1e6).toFixed(2)} Mb`]].map(([k, v]) => <div key={k}><span>{k}</span><strong>{v}</strong></div>)}</div>{s.notes.map(note => <div className="pending-box" key={note}><CircleAlert size={17} /><span>{note}</span></div>)}<p className="card-note">{t('The phenotype is an observed laboratory label, not a model prediction. Comprehensive contamination screening is pending.', 'Phenotype laboratory का observed label है, model prediction नहीं। व्यापक contamination screening बाकी है।')}</p></aside></div>;
+  return <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && close()}><div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="sample-modal-title"><div className="modal-header"><div><span className="eyebrow">{t('GENOME RECORD', 'GENOME RECORD')}</span><h2 id="sample-modal-title">{s.id}</h2><p>{s.isolate} · BioProject {s.project}</p></div><button className="icon-button" onClick={close} aria-label={t('Close dialog', 'Dialog बंद करें')}><X size={20} /></button></div><div className="modal-body"><div className="detail-grid">{[['BioProject', s.project], ['Assembly', s.assembly || '—'], ['Run', s.run || '—'], ['Source type', s.source === 'assembly' ? t('Assembly', 'Assembly') : t('Paired reads', 'Paired reads')], ['Species', s.species || 'Klebsiella pneumoniae'], ['Species match', s.species_match || '—'], ['Contigs', format(s.contigs)], ['N50', s.n50 ? `${format(s.n50)} bp` : '—'], ['Total length', s.length_bp ? `${format(s.length_bp)} bp` : '—'], ['AMR hits', format(s.amr_hits)], ['Annotated features', format(s.features)], ['Observed phenotype', s.phenotype]].map(([label, value]) => <div className="detail-item" key={label}><span className="detail-label">{label}</span><strong className="detail-value">{value ?? '—'}</strong></div>)}</div>{s.notes?.length > 0 && <div className="detail-notes"><h4>{t('Quality and processing notes', 'Quality और processing notes')}</h4><ul>{s.notes.map((n, i) => <li key={i}>{n}</li>)}</ul></div>}</div><div className="modal-actions"><a className="button" href="/api/reports/assembly-qc"><Download size={16} />{t('View batch QC report', 'Batch QC report देखें')}</a><button className="button primary" onClick={close}>{t('Done', 'हो गया')}</button></div></div></div>;
 }
 
 export default function App() {
@@ -130,9 +541,10 @@ export default function App() {
   useEffect(() => { localStorage.setItem('rm-refresh', String(refreshSeconds)); }, [refreshSeconds]);
   async function logout() { await api('/auth/logout', { method: 'POST' }); setUser(null); setData(null); setExplore(null); setSelected(null); setChat(false); }
   const nav = [
-    ['overview', LayoutDashboard, t('Overview', 'अवलोकन')], ['genomes', Dna, t('Genomes', 'जीनोम')], ['explore', ChartScatter, t('Explore data', 'डेटा देखें')], ['models', FlaskConical, t('Model lab', 'मॉडल लैब')], ['workflow', GitBranch, t('Project guide', 'प्रोजेक्ट गाइड')], ['input', UploadCloud, t('Input workspace', 'Input workspace')], ['reports', FileText, t('Reports', 'रिपोर्ट')],
+    ['overview', LayoutDashboard, t('Overview', 'अवलोकन')], ['species', Database, t('Bacterial cohorts', 'Bacterial cohorts')], ['genomes', Dna, t('Genomes', 'जीनोम')], ['explore', ChartScatter, t('Explore data', 'डेटा देखें')], ['models', FlaskConical, t('Model lab', 'मॉडल लैब')], ['workflow', GitBranch, t('Project guide', 'प्रोजेक्ट गाइड')], ['input', UploadCloud, t('Input workspace', 'Input workspace')], ['reports', FileText, t('Reports', 'रिपोर्ट')],
   ];
   const pageInfo = {
+    species: [t('Bacterial cohorts', 'Bacterial cohorts'), t('Saved data and progress for each species.', 'हर species का saved data और progress।')],
     overview: [t('Surveillance overview', 'Surveillance अवलोकन'), t('Your research, connected. A live view of genomic evidence and model development.', 'आपकी research, एक साथ। Genomic evidence और model development का live view।')],
     genomes: [t('Your genome collection', 'आपका genome collection'), t('Browse the frozen development cohort and follow each sample.', 'Frozen development cohort के हर sample की जानकारी देखें।')],
     explore: [t('Explore the genomic landscape', 'Genomic landscape देखें'), t('Look closer. Discover the patterns behind your data.', 'करीब से देखें। अपने डेटा में patterns खोजें।')],
@@ -144,11 +556,12 @@ export default function App() {
   };
   if (authLoading) return <div className="app-loading"><Brand large /><span className="loading-line" /></div>;
   if (!user) return <><Login onLogin={u => { setUser(u); setError(''); }} />{error && <div className="connection-toast" role="alert">{error}</div>}</>;
-  return <div className="app-shell">{sidebar && <div className="mobile-shade" onClick={() => setSidebar(false)} />}<aside className={`sidebar ${sidebar ? 'mobile-open' : ''}`}><Brand /><div className="workspace-picker"><span className="workspace-avatar">R</span><div><strong>{t('Research workspace', 'Research workspace')}</strong><small>K. pneumoniae · CLSI</small></div><ChevronDown size={14} /></div><span className="nav-label">{t('WORKSPACE', 'WORKSPACE')}</span><nav>{nav.map(([key, Icon, label]) => <button key={key} className={`nav-item ${page === key ? 'active' : ''}`} onClick={() => navigate(key)} aria-current={page === key ? 'page' : undefined}><Icon size={18} /><span>{label}</span>{key === 'genomes' && data && <small>{data.cohort.total}</small>}{key === 'workflow' && <span className="nav-new">{t('NEW', 'नया')}</span>}</button>)}</nav><div className="sidebar-bottom"><div className="sidebar-help"><div><Sparkles size={17} /><strong>{t('A little clarity?', 'कुछ जानना है?')}</strong></div><p>{t('Ask your research assistant.', 'अपने research assistant से पूछें।')}</p><button onClick={() => setChat(true)}>{t('Let’s talk', 'बात करें')}<ArrowUpRight size={14} /></button></div><button className={`nav-item ${page === 'settings' ? 'active' : ''}`} onClick={() => navigate('settings')}><Settings2 size={18} />{t('Settings', 'Settings')}</button><div className="sidebar-profile"><div className="avatar">{user.name[0].toUpperCase()}</div><div><strong>{user.name}</strong><small>{t('Researcher', 'शोधकर्ता')}</small></div><button className="icon-button" onClick={logout} aria-label={t('Sign out', 'Sign out')}><LogOut size={16} /></button></div></div></aside>
+  return <div className="app-shell">{sidebar && <div className="mobile-shade" onClick={() => setSidebar(false)} />}<aside className={`sidebar ${sidebar ? 'mobile-open' : ''}`}><Brand /><div className="workspace-picker"><span className="workspace-avatar">R</span><div><strong>{t('Research workspace', 'Research workspace')}</strong><small>Multispecies research</small></div><ChevronDown size={14} /></div><span className="nav-label">{t('WORKSPACE', 'WORKSPACE')}</span><nav>{nav.map(([key, Icon, label]) => <button key={key} className={`nav-item ${page === key ? 'active' : ''}`} onClick={() => navigate(key)} aria-current={page === key ? 'page' : undefined}><Icon size={18} /><span>{label}</span>{key === 'genomes' && data && <small>{data.cohort.total}</small>}{key === 'workflow' && <span className="nav-new">{t('NEW', 'नया')}</span>}</button>)}</nav><div className="sidebar-bottom"><div className="sidebar-help"><div><Sparkles size={17} /><strong>{t('A little clarity?', 'कुछ जानना है?')}</strong></div><p>{t('Ask your research assistant.', 'अपने research assistant से पूछें।')}</p><button onClick={() => setChat(true)}>{t('Let’s talk', 'बात करें')}<ArrowUpRight size={14} /></button></div><button className={`nav-item ${page === 'settings' ? 'active' : ''}`} onClick={() => navigate('settings')}><Settings2 size={18} />{t('Settings', 'Settings')}</button><div className="sidebar-profile"><div className="avatar">{user.name[0].toUpperCase()}</div><div><strong>{user.name}</strong><small>{t('Researcher', 'शोधकर्ता')}</small></div><button className="icon-button" onClick={logout} aria-label={t('Sign out', 'Sign out')}><LogOut size={16} /></button></div></div></aside>
     <div className="main-shell"><header className="topbar"><div className="breadcrumb"><button className="icon-button mobile-menu" onClick={() => setSidebar(true)} aria-label="Open menu"><Menu size={20} /></button><span>{t('Workspace', 'Workspace')}</span><ChevronRight size={13} /><strong>{page === 'settings' ? t('Settings', 'Settings') : nav.find(n => n[0] === page)?.[2]}</strong></div><div className="topbar-right"><span className="connection-pill"><span className={error ? 'small-dot' : 'live-dot'} />{error ? t('Connection issue', 'Connection issue') : t('Local workspace', 'Local workspace')}</span><button className="text-button language-toggle" onClick={() => setLang(lang === 'en' ? 'hi' : 'en')}><Globe2 size={16} />{lang === 'en' ? 'EN' : 'हि'}</button><button className="icon-button" aria-label="Toggle color theme" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>{theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</button><div className="avatar small-avatar">{user.name[0].toUpperCase()}</div></div></header>
-      <main className="main-content"><div className="page-heading"><div><div className="page-kicker"><span className="small-dot" />KLEBSIELLA PNEUMONIAE <span>/</span> CEFTAZIDIME</div><h1>{pageInfo[page][0]}</h1><p>{pageInfo[page][1]}</p></div><div className="heading-actions"><button className="button primary new-input-button" onClick={() => navigate('input')} aria-label={t('Add my input', 'अपना input जोड़ें')}><UploadCloud size={16} /><span>{t('Add input', 'Input जोड़ें')}</span></button><button className="button icon-only" onClick={refresh} disabled={refreshing} aria-label="Refresh data"><RefreshCw size={17} className={refreshing ? 'spinning' : ''} /></button><a className="button" href="/api/export/snapshot"><Download size={16} /><span>{t('Export', 'Export')}</span></a></div></div>
+      <main className="main-content"><div className="page-heading"><div><div className="page-kicker"><span className="small-dot" />{page === 'overview' || page === 'species' || page === 'explore' ? 'MULTISPECIES RESEARCH' : 'KLEBSIELLA PNEUMONIAE / CEFTAZIDIME'}</div><h1>{pageInfo[page][0]}</h1><p>{pageInfo[page][1]}</p></div><div className="heading-actions"><button className="button primary new-input-button" onClick={() => navigate('input')} aria-label={t('Add my input', 'अपना input जोड़ें')}><UploadCloud size={16} /><span>{t('Add input', 'Input जोड़ें')}</span></button><button className="button icon-only" onClick={refresh} disabled={refreshing} aria-label="Refresh data"><RefreshCw size={17} className={refreshing ? 'spinning' : ''} /></button><a className="button" href="/api/export/snapshot"><Download size={16} /><span>{t('Export', 'Export')}</span></a></div></div>
         {error && <div className="error-note" role="alert">{error} <button className="text-button" onClick={refresh}>{t('Retry', 'फिर कोशिश करें')}</button></div>}
-        {!data ? <div className="loading-card"><span className="loading-line" /><p>{t('Reading your research results…', 'Research results पढ़ रहे हैं…')}</p></div> : <div className="page-body" key={page}>{page === 'overview' && <Overview data={data} explore={explore} navigate={navigate} onSelect={setSelected} />}{page === 'genomes' && <Genomes data={data} onSelect={setSelected} globalSearch={search} setGlobalSearch={setSearch} />}{page === 'explore' && <Explore data={explore} />}{page === 'models' && <Models model={data.model} />}{page === 'workflow' && <Workflow data={data} />}{page === 'input' && <InputWorkspace />}{page === 'reports' && <Reports reports={data.reports} />}{page === 'settings' && <Settings user={user} refreshSeconds={refreshSeconds} setRefreshSeconds={setRefreshSeconds} />}</div>}
+        {!data ? <div className="loading-card"><span className="loading-line" /><p>{t('Reading your research results…', 'Research results पढ़ रहे हैं…')}</p></div> : <div className="page-body" key={page}>{page === 'overview' && <Overview data={data} explore={explore} navigate={navigate} onSelect={setSelected} />}{page === 'species' && <SpeciesSummary data={data} />}{page === 'genomes' && <Genomes data={data} onSelect={setSelected} globalSearch={search} setGlobalSearch={setSearch} />}{page === 'explore' && <Explore data={explore} dashboard={data} />}{page === 'models' && <Models model={data.model} multispecies={data.multispecies} />}{page === 'workflow' && <Workflow data={data} />}{page === 'input' && <InputWorkspace />}{page === 'reports' && <Reports reports={data.reports} />}{page === 'settings' && <Settings user={user} refreshSeconds={refreshSeconds} setRefreshSeconds={setRefreshSeconds} />}</div>}
         {data && <footer className="main-footer"><span>ResistMap AI <span>·</span> {t('Research prototype', 'Research prototype')}</span><span>{t('Last synced', 'Last synced')} {new Date(data.generated_at).toLocaleTimeString(lang === 'hi' ? 'hi-IN' : 'en-IN', { hour: '2-digit', minute: '2-digit' })}<span className="live-dot" /></span></footer>}
       </main></div><Assistant open={chat} setOpen={setChat} navigate={navigate} />{selected && <SampleDetails sample={data?.samples.find(s => s.id === selected.id) || selected} close={() => setSelected(null)} />}</div>;
 }
+import EcoliExternalResults from './EcoliExternalResults';

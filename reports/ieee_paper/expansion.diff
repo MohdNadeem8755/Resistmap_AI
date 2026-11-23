@@ -1,0 +1,179 @@
+--- before
++++ expanded
+@@ -72,6 +72,50 @@
+ 
+ Kleborate provides species and assembly screening. Read-derived pilot assemblies are also assessed by minimap2 alignment~\cite{minimap} and SAMtools summaries~\cite{samtools}. Source identities, checksums, commands, and quality flags remain in audit records. These regenerated features have not been used to produce the V2 scores reported here; the trained model uses the exported genotype representation described above.
+ 
++\subsection{Workflow Boundaries and Evidence Flow}
++Fig.~\ref{fig:workflow} separates the data used for prediction from the data retained for auditing. The distinction prevents an administrative field from becoming a shortcut for the phenotype. BioProject identifies the sampling group during partitioning; it is never passed to the classifier. Similarly, susceptibility labels determine the target and permit stratification, but neither the categorical label nor its underlying MIC enters the feature dictionary. Source type and assembly-quality flags describe measurement conditions and remain available for review without becoming predictive inputs.
++
++\begin{figure}[t]
++\centering
++\begin{tikzpicture}[every node/.style={font=\small},box/.style={draw=resblue,fill=resblue!6,rounded corners=2pt,text width=6.8cm,align=center,minimum height=0.70cm}]
++\node[box] (a) at (0,0) {Public susceptibility and genotype exports\\BioSample linkage and label-conflict audit};
++\node[box] (b) at (0,-1.15) {BioProject outer partition\\Remove profile and known-SNP-cluster overlap};
++\node[box] (c) at (0,-2.30) {445 development isolates\\Three project-separated validation folds};
++\node[box] (d) at (0,-3.45) {Fit feature vocabulary on training rows only\\Train candidates and save out-of-fold probabilities};
++\node[box] (e) at (0,-4.60) {Select model and threshold on development folds\\Refit selected pipeline; retain audit metadata};
++\node[box,draw=resorange,fill=resorange!6] (f) at (0,-5.75) {Independent future cohort required\\Historical V1 test is not a fresh V2 test};
++\draw[->,thick] (a)--(b);\draw[->,thick] (b)--(c);\draw[->,thick] (c)--(d);\draw[->,thick] (d)--(e);\draw[->,thick] (e)--(f);
++\end{tikzpicture}
++\caption{Prediction-development workflow. Sequence regeneration is a separate branch and has not supplied the predictors evaluated in the saved V2 run.}
++\label{fig:workflow}
++\end{figure}
++
++The trained representation and the sequence-regeneration branch have different provenance. The former consumes the genotype strings in an existing public export. The latter regenerates evidence from downloaded nucleotide assemblies or read sets using a recorded tool environment. A shared gene name does not establish equivalence between the two representations: reference versions, alignment rules, partial-call handling, and mutation coverage may differ. A transition to regenerated features therefore requires a new feature audit and model evaluation, even if the interface and target antibiotic stay the same.
++
++An isolate record has three conceptual parts: identifiers for joining and auditing, measured or deposited evidence, and model-derived output. Maintaining these parts separately permits an analyst to trace an error back to its original genotype and susceptibility record. It also prevents a model probability from being mistaken for an experimental susceptibility measurement. The current manuscript evaluates the classification component of this workflow; it does not assume that a dashboard display supplies additional validation.
++
++\subsection{Assumptions Behind the Binary Representation}
++The representation assumes that reported complete genes and known point mutations contain useful information about the deposited ceftazidime phenotype. It does not assume that every encoded determinant is specific to ceftazidime. The model may use co-occurring determinants as statistical markers, including features whose association reflects the sampled bacterial population rather than a direct resistance mechanism. Accordingly, a high predictive contribution would require separate biological investigation before being described as causal.
++
++Repeated occurrences of the same retained token within an isolate produce a single indicator. This deliberately avoids interpreting duplicated annotations as gene dosage. Gene and mutation namespaces remain distinct, so a gene call cannot silently replace a point-mutation call with the same text. Tokens with excluded statuses do not contribute to the primary vector, although their raw source record remains relevant when reviewing an error. Malformed entries are treated as parsing problems rather than silently converted into a susceptible label.
++
++A training-fold vocabulary defines the columns available to a fitted model. A validation isolate can contain a determinant absent from that vocabulary; the model cannot learn an effect for that determinant from the current training fold. This is an information limitation, not a reason to rebuild the vocabulary using validation rows. The appropriate response is to retain the unseen-feature evidence for audit and evaluate the model under the same information constraint that applies to a new isolate.
++
++\subsection{Why Two Levels of Separation Are Needed}
++The outer partition and the development folds serve different purposes. The outer split originally created the historical V1 test, while the inner folds support model comparison on the retained development set. Project separation at both levels blocks direct reuse of a project's isolates across the corresponding fit and evaluation partitions. Profile and known-cluster filtering address a different problem: distinct project accessions can still contain closely related or identically represented isolates.
++
++Filtering acts on training candidates, leaving the evaluation partition intact. Reversing that direction would change the evaluation population in response to the available training data. The resulting training set can become smaller than the nominal group split suggests; that loss is part of the protocol and must be retained in the manifest. A model fitted after overlap removal therefore faces a different information budget from a model evaluated by a conventional random row split.
++
++The procedure uses observed annotations rather than a full reconstruction of evolutionary relationships. Identical feature profiles are a conservative computational overlap criterion, not proof that two isolates are identical genomes. Conversely, different profiles do not prove that two isolates are unrelated. A known SNP-cluster identifier supplies additional evidence, but an absent identifier leaves uncertainty. These distinctions explain why the manuscript describes the protocol as project-separated with overlap controls rather than as fully phylogenetically independent validation.
++
++\subsection{Recorded Selection Procedure}
++For each candidate, three fitted pipelines produce one probability for every development isolate in its assigned validation fold. The 17 thresholds are applied to these saved probabilities; changing the threshold does not require retraining the candidate. Thus, V2 uses 33 cross-validation fits, followed by one final development-set fit, while comparing 187 configuration--threshold combinations. This count describes the V2 stage only and excludes earlier V1 tuning and feature experiments.
++
++The saved decision rule uses a greater-than-or-equal comparison. An output exactly equal to 0.40 is therefore classified as resistant. This small implementation detail matters when reproducing classifications from rounded probabilities. The archived floating-point values, rather than the rounded values printed in a table, should be used to recreate decisions. The selected threshold must also remain attached to the trained pipeline: retaining only the forest and reverting to a default decision boundary would reproduce a different predictor.
++
++The mean fold objective, worst-fold tie breaker, and threshold tie breaker are recorded explicitly. No project-specific threshold is fitted. Nevertheless, searching the same folds over candidate models and thresholds is an adaptive use of those folds. The procedure supports a transparent development choice; it does not convert the winning cross-validation score into a final generalization estimate.
++
++
+ \section{Experimental Setup}
+ \subsection{Data and Study Scope}
+ The saved split manifest contains 849 isolates: 445 development isolates, 114 historical test isolates, and 290 candidates excluded for overlap with the test partition. The development set spans 21 BioProjects and contains 83 susceptible and 362 resistant isolates. Fig.~\ref{fig:pie} shows this imbalance. The three validation folds contain 157, 142, and 146 isolates, respectively. This is a retrospective analysis of public records, not a prospective clinical study or a population-prevalence sample.
+@@ -107,6 +151,45 @@
+ 
+ The historical 114-isolate test partition was evaluated for V1, but its results subsequently informed development. It is therefore unsuitable as fresh independent validation of V2. V2 neither trains on nor re-evaluates this partition in the saved run. No confidence interval for external performance is inferred from only three development folds.
+ 
++\subsection{Cohort Accounting and Reproduction Checks}
++Table~\ref{tab:cohort} accounts for the saved outer split and the class composition of the development folds. The retained development and historical test partitions sum to 559 isolates. The remaining 290 records were excluded from the outer training candidates because of measured overlap; they are not additional test cases. The exclusion count should therefore not be added to the validation denominator or presented as a sequence-quality rejection count.
++
++\begin{table}[t]
++\caption{Saved Cohort and Validation Composition}
++\label{tab:cohort}
++\centering\footnotesize
++\begin{tabular}{lrrr}\toprule
++Partition & Susceptible & Resistant & Total\\\midrule
++Development &83&362&445\\
++\quad Validation fold 1&38&119&157\\
++\quad Validation fold 2&19&123&142\\
++\quad Validation fold 3&26&120&146\\
++Historical V1 test&41&73&114\\
++Excluded overlap candidates&\multicolumn{2}{c}{Not evaluated}&290\\\bottomrule
++\end{tabular}
++\vspace{3pt}
++\parbox{\columnwidth}{\footnotesize Validation folds partition the development set; they are not additional isolates. The full saved manifest contains 849 records.}
++\end{table}
++
++The manuscript audit checks that the 445 selected-model probability rows have unique BioSample accessions and exactly match the manifest's development identifiers. It reconstructs the thresholded confusion counts for each fold and checks their balanced accuracies against the saved fold-summary file. This verification tests consistency between the manuscript tables and the archived predictions. It does not rerun raw sequence processing or establish that every deposited phenotype is correct.
++
++The same distinction applies to software provenance. The recorded library versions describe the saved training environment; they are not a claim that every future version will reproduce identical results. The final model, feature vocabulary, threshold, candidate configuration, and data partition need to be preserved together. Re-running only the estimator with a different export or library environment would constitute a new experiment. File checksums recorded during the manuscript audit identify the local result files used for this draft.
++
++\subsection{Comparability of Development Experiments}
++All rows in the initial baseline comparison use the same saved development folds and primary COMPLETE/POINT feature representation. The majority classifier provides a reference for the observed class skew; the logistic model supplies a linear reference; the two ensemble families allow nonlinear combinations of binary features. These are within-cohort comparisons. Their ordering does not imply that one model family is superior for other drugs, species, or sampling distributions.
++
++The V1 control and selected V2 row differ from untuned baselines because their settings were chosen after development comparisons. Reporting them together is useful for documenting the development trajectory, provided that the selection status is explicit. It would be misleading to interpret every difference in the table as if it arose from a single prespecified experiment. Earlier feature exploration and the historical test also constrain the independence that can be claimed for the final choice.
++
++The partial-call experiment is a restricted representation comparison rather than a new sequence experiment. It adds information from alternative statuses in the existing export while retaining the same endpoint and saved folds. It does not measure the effect of replacing the export with a uniformly re-annotated genome cohort. That larger change would require completing the separate processing branch, assessing missingness and quality flags, and repeating the overlap audit for its resulting feature representation.
++
++\subsection{Aggregate Metrics and Error Denominators}
++Macro-averaging fold metrics gives each validation fold equal weight. In contrast, pooled accuracy divides the number of correct predictions across all folds by the total number of isolates. Both summaries can be computed from the same predictions, but they need not agree because fold sizes and class proportions differ. In this study, the primary 90.37\% accuracy is the unweighted fold mean used in the saved selection table. The manuscript does not relabel it as pooled accuracy.
++
++Class recalls also need explicit denominators. A resistant isolate classified as susceptible contributes to the resistant-class false-negative count; a susceptible isolate classified as resistant contributes to the susceptible-class error count. For a project containing only one phenotype class, balanced accuracy across both classes is not interpretable as a project-level summary. Such projects remain in the analysis, but absent-class recall is not filled with a fabricated value. Confusion counts are preferred when the relevant denominator is small.
++
++AUROC summarizes ordering across thresholds, while accuracy and class recall depend on the chosen threshold. It follows that strong AUROC does not guarantee acceptable class-specific error at the deployed cutoff. The historical V1 example is reported for this reason. No threshold in this paper has been validated against a clinical deployment requirement, and no probability-calibration assessment is reported. These missing evaluations cannot be inferred from the classification metrics.
++
++
+ \section{Results and Discussion}
+ \subsection{Development Performance}
+ Table~\ref{tab:models} and Fig.~\ref{fig:bar} compare the saved development results. The selected V2 model reaches mean accuracy of 90.37\% and BA of 83.66\%. These values answer different questions: accuracy weights isolates equally, while BA weights the two classes equally. Majority prediction already reaches 81.54\% mean accuracy but has zero susceptible recall. Accuracy alone would conceal that failure.
+@@ -188,6 +271,79 @@
+ The cohort is small, resistance-enriched, and assembled from heterogeneous public projects. Requiring available genotype calls excludes records without such results. Removing 290 overlapping candidates changes the evaluated population and limits comparison with unrestricted random splits. BioProject and known-cluster separation cannot rule out unrecorded shared ancestry. Deposited CLSI labels also do not establish a uniform testing method or breakpoint edition across laboratories.
+ 
+ The feature representation captures reported genes and point mutations, but does not explicitly quantify gene expression, copy number, or all regulatory and structural variation. Database versions may change feature calls. Repeated development-set comparisons create selection optimism even when preprocessing is fitted within each fold. Finally, the present experiment evaluates isolate-level classification; it does not measure outbreak detection, alert lead time, geographic forecasting, treatment benefit, or prospective clinical turnaround time. The framework can organize evidence for surveillance review, but those operational outcomes require separate validation.
++
++\subsection{Threshold Sensitivity Within the Selected Configuration}
++Table~\ref{tab:threshold} holds the RF\_leaf\_4 candidate fixed and varies only the decision threshold using its saved out-of-fold probabilities. This comparison isolates a decision-rule effect that the V1--V2 comparison cannot isolate. Moving from 0.50 to 0.40 raises mean accuracy from 85.96\% to 90.37\% and BA from 81.58\% to 83.66\%. Resistant recall increases by 5.45 percentage points, whereas susceptible recall decreases by 1.28 points.
++
++\begin{table}[t]
++\caption{Threshold Sensitivity for the Selected Forest (Percent)}
++\label{tab:threshold}
++\centering\footnotesize
++\begin{tabular}{crrrrr}\toprule
++$\tau$ & Acc. & BA & S recall & R recall & Worst BA\\\midrule
++0.30&90.17&80.47&65.59&95.35&60.29\\
++0.40&90.37&83.66&73.35&93.98&67.15\\
++0.50&85.96&81.58&74.63&88.52&68.24\\
++0.60&80.30&78.25&75.51&80.99&65.32\\\bottomrule
++\end{tabular}
++\vspace{3pt}
++\parbox{\columnwidth}{\footnotesize All values use the same selected-candidate development predictions. Worst BA is the lowest fold balanced accuracy. These are threshold-selection results, not an external threshold validation.}
++\end{table}
++
++Reducing the threshold further to 0.30 gives slightly lower accuracy than 0.40 but a much larger reduction in susceptible recall. Raising it to 0.60 recovers little susceptible recall while losing resistant recall. This pattern explains why the recorded development objective selects 0.40 from the grid. It does not establish that 0.40 is optimal for a new hospital, laboratory, or prevalence setting.
++
++The best mean BA and best worst-fold BA are also not identical objectives. Among the displayed thresholds, 0.50 has a higher worst-fold BA than 0.40 even though its mean BA is lower. The implemented tie breaker cannot override a difference in the primary mean objective. If a future application prioritizes minimum subgroup performance, that requirement should be stated before model selection and evaluated independently, rather than introduced after inspecting a difficult fold.
++
++\subsection{Pooled Confusion Counts and Project Concentration}
++Pooling the selected model's out-of-fold predictions gives 63 true susceptible predictions, 20 susceptible isolates predicted resistant, 22 resistant isolates predicted susceptible, and 340 true resistant predictions. Table~\ref{tab:confusion} presents the counts without averaging. The resulting pooled accuracy is $403/445=90.56\%$, pooled susceptible recall is $63/83=75.90\%$, pooled resistant recall is $340/362=93.92\%$, and pooled BA is 84.91\%. These pooled values coexist with, and do not replace, the reported mean-fold scores.
++
++\begin{table}[t]
++\caption{Pooled V2 Out-of-Fold Confusion Matrix}
++\label{tab:confusion}
++\centering\small
++\begin{tabular}{lrrr}\toprule
++Actual phenotype & Predicted S & Predicted R & Total\\\midrule
++Susceptible &63&20&83\\
++Resistant &22&340&362\\\midrule
++Total &85&360&445\\\bottomrule
++\end{tabular}
++\end{table}
++
++The difference between pooled and mean-fold BA is driven by weighting. Fold 3 contains 26 susceptible isolates and has the poorest susceptible recall; the fold mean gives that fold the same overall weight as the others. Pooled class recall instead weights each susceptible isolate equally. Neither calculation removes the failure. Reporting the formula, denominator, and aggregation rule prevents a higher aggregate from being selected merely because it is more favorable.
++
++Joining the V2 predictions to the saved BioProject manifest shows that errors are concentrated in a few projects. PRJNA278886 contributes 20 of the 42 total errors: 16 false-resistant and four false-susceptible predictions among 109 isolates. PRJNA376414 contributes 14 errors, including 12 false-susceptible predictions among 101 isolates. Together these projects contain 210 of 445 isolates and account for 34 of 42 errors. Their error profiles differ, so one overall explanation for the model's mistakes would be premature.
++
++\begin{table}[t]
++\caption{Largest Error-Contributing Projects in V2}
++\label{tab:projects}
++\centering\footnotesize
++\begin{tabular}{lrrrrr}\toprule
++BioProject & $n$ & S & R & S as R & R as S\\\midrule
++PRJNA278886&109&22&87&16&4\\
++PRJNA376414&101&10&91&2&12\\
++PRJNA288601&87&2&85&1&2\\
++PRJNA396774&7&5&2&1&1\\\bottomrule
++\end{tabular}
++\vspace{3pt}
++\parbox{\columnwidth}{\footnotesize Projects are shown in descending total error count. Counts come from selected-model development predictions, not the historical V1 test.}
++\end{table}
++
++Table~\ref{tab:projects} also illustrates why project-level percentages can be unstable. PRJNA288601 has only two susceptible isolates, so one susceptible error changes that class recall by 50 percentage points. PRJNA396774 contains seven isolates in total. Such small denominators warrant displaying counts alongside any percentage. These descriptive project comparisons identify where evidence review is needed; they do not estimate an institution's population resistance prevalence or establish that project membership causes an error.
++
++\subsection{Interpretation of Regenerated Sequence Evidence}
++The processing checkpoint supports a limited but useful conclusion: the workflow can connect public accessions to nucleotide assemblies and reproducible annotation outputs for a substantial part of the development cohort. It cannot yet answer whether regenerated evidence improves classification. The completed assembly subset and remaining read-derived subset have different data-availability conditions. Training only on the convenient completed subset could change the cohort and make a feature comparison inseparable from a sampling comparison.
++
++Completeness should therefore be evaluated at the manifest level. An isolate with a failed download is different from an isolate with an assembly warning, and both differ from an isolate with a valid annotation containing no retained resistance feature. Treating all three as an all-zero vector would hide distinct evidence states. The saved processing records support keeping these states separate while unresolved cases are reviewed. No unresolved sample should be removed because its current model prediction is wrong.
++
++The mapping checks also require contextual interpretation. Aligning reads back to their own assembly tests whether assembled sequence is supported by those reads, but missing sequence can remain absent from both the reference and the evaluated breadth denominator. Similarly, a close species match is compatible with additional contamination that a dedicated screen might detect. The retained uniform-quality flag demonstrates why quality summaries should not be reduced to a single pass/fail score. These are reasons to retain raw reports, not evidence that a specific isolate is biologically invalid.
++
++\subsection{Requirements for the Next Evaluation}
++The next evaluation should distinguish a feature-development stage from a final validation stage. First, the complete sequence-derived representation should be defined, including partial calls, mutation states, missingness, database version, and quality-review rules. Candidate comparison can then proceed using development data with the overlap restrictions applied to that representation. Only after the pipeline and threshold are frozen should an independent cohort be used to estimate generalization.
++
++The independent cohort should document the phenotype testing method and interpretive standard, retain accession provenance, and include enough susceptible and resistant isolates to interpret both error denominators. Evaluation should report accuracy, BA, class recalls, ranking performance, and confusion counts under the frozen decision rule. Any calibration assessment or alternative operating threshold should be declared as a separate analysis. These are requirements for a future study; they are not completed experiments in the present paper.
++
++Operational surveillance would require an additional evaluation beyond isolate classification. For example, measuring whether flagged isolates support earlier investigation requires timestamps, a reference definition of an event, and an explicit alert policy. None of those outcomes is available in the present saved experiment. The immediate result is therefore a reproducible prediction-development record and a sequence-processing feasibility demonstration. Keeping that boundary explicit makes later claims testable when operational data become available.
++
+ 
+ \section{Conclusion}
+ ResistMap AI provides an auditable workflow for linking genomic resistance calls to ceftazidime susceptibility in \kp{}. On three project-separated development folds, the selected random forest achieved 90.37\% mean accuracy and 83.66\% balanced accuracy. The 67.15--97.42\% fold-level BA range demonstrates that the average does not describe uniform performance across held-out projects. Sequence processing was feasible in a ten-genome pilot, but the regenerated features have not yet been evaluated as a trained predictor. The next study should freeze the complete feature pipeline, model, and threshold before testing on a newly acquired, independent cohort with documented phenotype methods and sequence quality.

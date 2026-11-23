@@ -1,0 +1,38 @@
+\subsection{Cohort Accounting and Reproduction Checks}
+Table~\ref{tab:cohort} accounts for the saved outer split and the class composition of the development folds. The retained development and historical test partitions sum to 559 isolates. The remaining 290 records were excluded from the outer training candidates because of measured overlap; they are not additional test cases. The exclusion count should therefore not be added to the validation denominator or presented as a sequence-quality rejection count.
+
+\begin{table}[t]
+\caption{Saved Cohort and Validation Composition}
+\label{tab:cohort}
+\centering\footnotesize
+\begin{tabular}{lrrr}\toprule
+Partition & Susceptible & Resistant & Total\\\midrule
+Development &83&362&445\\
+\quad Validation fold 1&38&119&157\\
+\quad Validation fold 2&19&123&142\\
+\quad Validation fold 3&26&120&146\\
+Historical V1 test&41&73&114\\
+Excluded overlap candidates&\multicolumn{2}{c}{Not evaluated}&290\\\bottomrule
+\end{tabular}
+\vspace{3pt}
+\parbox{\columnwidth}{\footnotesize Validation folds partition the development set; they are not additional isolates. The full saved manifest contains 849 records.}
+\end{table}
+
+The manuscript audit checks that the 445 selected-model probability rows have unique BioSample accessions and exactly match the manifest's development identifiers. It reconstructs the thresholded confusion counts for each fold and checks their balanced accuracies against the saved fold-summary file. This verification tests consistency between the manuscript tables and the archived predictions. It does not rerun raw sequence processing or establish that every deposited phenotype is correct.
+
+The same distinction applies to software provenance. The recorded library versions describe the saved training environment; they are not a claim that every future version will reproduce identical results. The final model, feature vocabulary, threshold, candidate configuration, and data partition need to be preserved together. Re-running only the estimator with a different export or library environment would constitute a new experiment. File checksums recorded during the manuscript audit identify the local result files used for this draft.
+
+\subsection{Comparability of Development Experiments}
+All rows in the initial baseline comparison use the same saved development folds and primary COMPLETE/POINT feature representation. The majority classifier provides a reference for the observed class skew; the logistic model supplies a linear reference; the two ensemble families allow nonlinear combinations of binary features. These are within-cohort comparisons. Their ordering does not imply that one model family is superior for other drugs, species, or sampling distributions.
+
+The V1 control and selected V2 row differ from untuned baselines because their settings were chosen after development comparisons. Reporting them together is useful for documenting the development trajectory, provided that the selection status is explicit. It would be misleading to interpret every difference in the table as if it arose from a single prespecified experiment. Earlier feature exploration and the historical test also constrain the independence that can be claimed for the final choice.
+
+The partial-call experiment is a restricted representation comparison rather than a new sequence experiment. It adds information from alternative statuses in the existing export while retaining the same endpoint and saved folds. It does not measure the effect of replacing the export with a uniformly re-annotated genome cohort. That larger change would require completing the separate processing branch, assessing missingness and quality flags, and repeating the overlap audit for its resulting feature representation.
+
+\subsection{Aggregate Metrics and Error Denominators}
+Macro-averaging fold metrics gives each validation fold equal weight. In contrast, pooled accuracy divides the number of correct predictions across all folds by the total number of isolates. Both summaries can be computed from the same predictions, but they need not agree because fold sizes and class proportions differ. In this study, the primary 90.37\% accuracy is the unweighted fold mean used in the saved selection table. The manuscript does not relabel it as pooled accuracy.
+
+Class recalls also need explicit denominators. A resistant isolate classified as susceptible contributes to the resistant-class false-negative count; a susceptible isolate classified as resistant contributes to the susceptible-class error count. For a project containing only one phenotype class, balanced accuracy across both classes is not interpretable as a project-level summary. Such projects remain in the analysis, but absent-class recall is not filled with a fabricated value. Confusion counts are preferred when the relevant denominator is small.
+
+AUROC summarizes ordering across thresholds, while accuracy and class recall depend on the chosen threshold. It follows that strong AUROC does not guarantee acceptable class-specific error at the deployed cutoff. The historical V1 example is reported for this reason. No threshold in this paper has been validated against a clinical deployment requirement, and no probability-calibration assessment is reported. These missing evaluations cannot be inferred from the classification metrics.
+

@@ -1,0 +1,94 @@
+{
+  "cohorts": [
+    {
+      "species": "escherichia_coli",
+      "raw_isolate_biosamples": 572609,
+      "raw_ast_biosamples": 12412,
+      "ast_biosamples_in_existing_isolates": 12412,
+      "ast_biosamples_not_in_existing_isolates": 0,
+      "independent_validation_cohort_established": false
+    },
+    {
+      "species": "acinetobacter_baumannii",
+      "raw_isolate_biosamples": 66021,
+      "raw_ast_biosamples": 1236,
+      "ast_biosamples_in_existing_isolates": 1236,
+      "ast_biosamples_not_in_existing_isolates": 0,
+      "independent_validation_cohort_established": false
+    }
+  ],
+  "artifact_snapshot": [
+    {
+      "path": "data\\processed\\multispecies\\escherichia_coli\\unsupervised_profiles\\samples.parquet",
+      "sha256": "61b6a35149047a2409fca6f555f96725e84930f7f3edf23075568f3da180493b"
+    },
+    {
+      "path": "data\\processed\\multispecies\\escherichia_coli\\unsupervised_profiles\\feature_names.json",
+      "sha256": "45cb9f7e32c8168b3c8cdf941e3c3962dfa64975bc7db803b15d8809266428a2"
+    },
+    {
+      "path": "data\\processed\\multispecies\\escherichia_coli\\unsupervised_profiles\\grouped_representation_evaluation\\group_partition.parquet",
+      "sha256": "ffb23ca1f3546deae9d18131a64f7f65daba3495017859ec7d9e16588226e23b"
+    },
+    {
+      "path": "data\\processed\\multispecies\\escherichia_coli\\unsupervised_profiles\\grouped_representation_evaluation\\sampled_rows.npz",
+      "sha256": "34a77817415a82a00b8411e20e42b01eec2d34456db633e090dc2d65252ff76b"
+    },
+    {
+      "path": "data\\processed\\multispecies\\escherichia_coli\\unsupervised_profiles\\anomaly_stability\\forest_seed_42.joblib",
+      "sha256": "6eb4224f8259fe3e77d7205b822e94c730b7b3731ab2a81361362a156e334418"
+    },
+    {
+      "path": "data\\processed\\multispecies\\escherichia_coli\\unsupervised_profiles\\anomaly_stability\\forest_seed_43.joblib",
+      "sha256": "8824c4ca70670a689267e998601bf8115a01ae3e1f3a7cb45b4440be3f39c145"
+    },
+    {
+      "path": "data\\processed\\multispecies\\escherichia_coli\\unsupervised_profiles\\anomaly_stability\\forest_seed_44.joblib",
+      "sha256": "af7a59918bae5ec134e08871da11fce21bf5bccdfb1895017ecfdb685ce420f6"
+    },
+    {
+      "path": "data\\processed\\multispecies\\escherichia_coli\\unsupervised_profiles\\anomaly_stability\\train_only_svd.joblib",
+      "sha256": "41d5b211eb48a865c59eb9ba85884f101db9265b72b6c087994753d39e55293e"
+    },
+    {
+      "path": "data\\processed\\multispecies\\escherichia_coli\\unsupervised_profiles\\anomaly_stability\\training_feature_mask.npy",
+      "sha256": "3fabb11fec9e3839adea669e3c22f0de76207a8a595082095bec5c5e47d13321"
+    },
+    {
+      "path": "data\\processed\\multispecies\\acinetobacter_baumannii\\unsupervised_profiles\\samples.parquet",
+      "sha256": "fa26da1224325ac006bb1e8c54ae830a72a3ea7ca9823d97b5cbd028027b3a49"
+    },
+    {
+      "path": "data\\processed\\multispecies\\acinetobacter_baumannii\\unsupervised_profiles\\feature_names.json",
+      "sha256": "ee13c3b7ad18845f47d14b979bae431b8b9f59e2bf9429c31a427d69c038a9aa"
+    },
+    {
+      "path": "data\\processed\\multispecies\\acinetobacter_baumannii\\unsupervised_profiles\\grouped_representation_evaluation\\group_partition.parquet",
+      "sha256": "d6b2b3a3a860097f989c5a3ea52448941a3f7ac211913b97a39d68807b2e5b45"
+    },
+    {
+      "path": "data\\processed\\multispecies\\acinetobacter_baumannii\\unsupervised_profiles\\grouped_representation_evaluation\\sampled_rows.npz",
+      "sha256": "23d45e1f25ba4c67bbf4863bd1933e81541ee1ad38d3184c1578af305b106956"
+    },
+    {
+      "path": "data\\processed\\multispecies\\acinetobacter_baumannii\\unsupervised_profiles\\anomaly_stability\\forest_seed_42.joblib",
+      "sha256": "fbfaba55def3317982f3d56841e81552bbc99118b9257e35f7ee767e4c340de5"
+    },
+    {
+      "path": "data\\processed\\multispecies\\acinetobacter_baumannii\\unsupervised_profiles\\anomaly_stability\\forest_seed_43.joblib",
+      "sha256": "b48512c73a58fe7952c75977eddda29349f67bb166b6004c2beba1ed71588a45"
+    },
+    {
+      "path": "data\\processed\\multispecies\\acinetobacter_baumannii\\unsupervised_profiles\\anomaly_stability\\forest_seed_44.joblib",
+      "sha256": "92a9fad8a101bd338d5b3571558e4f9e800d660ac5226d3f25c1fdc06e2f63a4"
+    },
+    {
+      "path": "data\\processed\\multispecies\\acinetobacter_baumannii\\unsupervised_profiles\\anomaly_stability\\train_only_svd.joblib",
+      "sha256": "5733f747f2de63c0d27a1a4ab6828e120befd7f569321fa329441f69e3634cde"
+    },
+    {
+      "path": "data\\processed\\multispecies\\acinetobacter_baumannii\\unsupervised_profiles\\anomaly_stability\\training_feature_mask.npy",
+      "sha256": "39b69d76015fa47a23c821e12fcbc218aa9810d98a6aabb366bb35e5bbbf49d0"
+    }
+  ]
+}

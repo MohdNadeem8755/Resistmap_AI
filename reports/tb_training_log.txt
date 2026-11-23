@@ -1,0 +1,52 @@
+======================================================================
+TB Supervised Baseline Training
+======================================================================
+
+[1/5] Loading feature matrix and labels...
+  Feature matrix : 51,012 samples × 1,850,698 features
+  Labels         : 404,897 rows, drugs: ['ami', 'bdq', 'cap', 'cfz', 'cip', 'clr', 'cyc', 'dcs', 'dlm', 'emb', 'eth', 'gen', 'gfx', 'imi', 'inh', 'kan', 'lev', 'lzd', 'mpm', 'mxf', 'ofx', 'pas', 'pto', 'pza', 'rfb', 'rif', 'stm', 'tze']
+  Samples        : 51,012 rows
+  Labels with valid matrix_row: 404,897
+
+[2/5] Performing group-aware stratified split on samples...
+  Train samples  : 39,439
+  Val samples    : 6,750
+  Test samples   : 4,823
+  Split unique samples in labels: {'test': 4823, 'train': 39439, 'validation': 6750}
+
+[3/5] Selecting features from training rows only...
+  Features with freq ≥ 5 in training: 241,285 / 1,850,698
+
+[4/5] Training per-drug models...
+  TRAIN ami    | tr=17839 va=5793 te=2096
+  TRAIN bdq    | tr=10945 va=2306 te=1669
+  TRAIN cap    | tr=10770 va=5042 te=924
+  SKIP  cfz    | test         | S=729 R=8 (below min 10)
+  SKIP  cip    | validation   | S=7 R=3 (below min 10)
+  SKIP  clr    | train        | S=0 R=1 (below min 10)
+  SKIP  cyc    | validation   | S=28 R=1 (below min 10)
+  SKIP  dcs    | validation   | S=0 R=0 (below min 10)
+  SKIP  dlm    | test         | S=753 R=7 (below min 10)
+  TRAIN emb    | tr=31911 va=3444 te=3832
+  TRAIN eth    | tr=12420 va=4487 te=1201
+  SKIP  gen    | train        | S=2 R=1 (below min 10)
+  SKIP  gfx    | train        | S=107 R=4 (below min 10)
+  SKIP  imi    | train        | S=1 R=0 (below min 10)
+  TRAIN inh    | tr=36588 va=5171 te=3736
+  TRAIN kan    | tr=17267 va=6314 te=1100
+  TRAIN lev    | tr=10731 va=3034 te=740
+  TRAIN lzd    | tr=12603 va=4719 te=1039
+  SKIP  mpm    | train        | S=1 R=0 (below min 10)
+  TRAIN mxf    | tr=16188 va=5566 te=1113
+  TRAIN ofx    | tr=10138 va=4128 te=1130
+  TRAIN pas    | tr=5162 va=3491 te=234
+  SKIP  pto    | validation   | S=4 R=0 (below min 10)
+  TRAIN pza    | tr=23027 va=1494 te=2439
+  TRAIN rfb    | tr=10978 va=2595 te=789
+  TRAIN rif    | tr=36763 va=5136 te=3693
+  TRAIN stm    | tr=14988 va=640 te=1640
+  SKIP  tze    | train        | S=0 R=66 (below min 10)
+
+  Trained: 16 drugs | Skipped: 12 drugs
+
+[5/5] Saving metrics and report...

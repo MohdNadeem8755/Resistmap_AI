@@ -8,6 +8,9 @@ def answer(message,language='en'):
     hi=language=='hi'
     data=snapshot()
     cohort,pipeline,model=data['cohort'],data['pipeline'],data['model']
+    multispecies=data.get('multispecies',{})
+    tb_status=multispecies.get('tb_status','')
+    tb_supervised=multispecies.get('tb_supervised',{})
     def response(en,hin,source):
         return {'answer':hin if hi else en,'source':source,'engine':'local-project-guide'}
     if any(w in q for w in ['accuracy','99','score','सटीक','एक्यूरेसी','स्कोर']):
@@ -17,6 +20,21 @@ def answer(message,language='en'):
             return response('Saved model scores are unavailable.','सहेजे गए मॉडल स्कोर उपलब्ध नहीं हैं।','Saved model metadata')
         return response(f'The V2 development selection accuracy is {acc*100:.2f}% and balanced accuracy is {ba*100:.2f}%. These were used for model selection, so they are not independent test accuracy. The sequence expansion has not produced a new accuracy result, and 99% has not been established. A fresh independent evaluation is still required.',
             f'V2 की development selection accuracy {acc*100:.2f}% और balanced accuracy {ba*100:.2f}% है। ये मॉडल चुनने के स्कोर हैं, स्वतंत्र test accuracy नहीं। नए sequence features की accuracy अभी मापी नहीं गई है और 99% साबित नहीं हुआ है। नया स्वतंत्र मूल्यांकन अभी ज़रूरी है।','Saved V2 development selection')
+    if any(w in q for w in ['tb','tuberculosis','mycobacterium','तपेदिक','टीबी']):
+        trained=tb_supervised.get('eligible_tasks_trained',0)
+        skipped=tb_supervised.get('drugs_skipped',0)
+        if trained:
+            tb_acc=next((s.get('macro_accuracy') for s in tb_supervised.get('summary',[]) if s.get('split')=='test'),None)
+            tb_ba=next((s.get('macro_balanced_accuracy') for s in tb_supervised.get('summary',[]) if s.get('split')=='test'),None)
+            acc_str=f' Macro test accuracy: {tb_acc*100:.2f}%; balanced accuracy: {tb_ba*100:.2f}%.' if tb_acc and tb_ba else ''
+            return response(
+                f'TB supervised training is complete. {trained} drug models were trained; {skipped} were skipped for insufficient class support. Split: group-aware by study accession (train 75% / val 10% / test 15%).{acc_str} Clustering, anomaly detection and 2D visualization are not available for TB. These are development baselines; no external validation cohort was used and runtime prediction is not integrated.',
+                f'TB supervised training पूरी हो चुकी है। {trained} drug models train हुए; {skipped} को insufficient class support के कारण skip किया गया। Split: study accession के अनुसार (train 75% / val 10% / test 15%).{acc_str} TB के लिए clustering, anomaly detection और 2D visualization उपलब्ध नहीं है। ये development baselines हैं; external validation cohort नहीं थी और runtime prediction जोड़ी नहीं गई है।',
+                'tuberculosis/supervised_models/report.json')
+        return response(
+            f'TB feature construction is complete (51,012 samples, 1,850,698 mutation features). {tb_status}',
+            f'TB feature construction पूरी हो चुकी है (51,012 samples, 1,850,698 mutation features)। {tb_status}',
+            'tuberculosis/features/report.json')
     if any(w in q for w in ['status','progress','complete','running','kitna','hua','प्रगति','पूरा','स्थिति','कितना','चालू']):
         c,t=pipeline['completed'],pipeline['total']
         return response(f'The assembly stage is {pipeline["status"]}: {c} of {t} assemblies are annotated. {cohort["read_completed"]} of {cohort["read_sources"]} read-derived genomes are processed. There are {len(pipeline["failures"])} recorded assembly failures. Species QC and a full cohort audit follow annotation; retraining comes after the remaining read genomes and QC.',
@@ -36,5 +54,5 @@ def answer(message,language='en'):
     if any(w in q for w in ['predict','upload','input','अपलोड','भविष्यवाणी']):
         return response('Choose Add input to enter samples and AMR calls manually, paste a CSV/TSV table, or upload a file with BioSample and AMR genotypes. It previews COMPLETE and POINT entries without storing the uploaded file. The new sequence model is not connected for inference yet, so this screen does not generate predictions.',
             'Add input से sample और AMR calls खुद लिखें, CSV/TSV table paste करें या BioSample और AMR genotypes वाली file अपलोड करें। File को save किए बिना COMPLETE और POINT entries का preview मिलता है। नया sequence model अभी inference से connected नहीं है, इसलिए इस screen से predictions नहीं बनतीं।','Input workspace contract')
-    return response('I can help with this workspace: processing progress, model accuracy, the dataset, QC, charts, or the project workflow. Try “What is the current progress?” or “Explain the accuracy scores.”',
-        'मैं इस workspace की processing progress, model accuracy, dataset, QC, charts और workflow समझा सकता हूँ। पूछें: “अभी कितना काम पूरा हुआ?” या “Accuracy scores समझाओ।”','Project guide • local answers')
+    return response('I can help with this workspace: processing progress, model accuracy, the dataset, QC, charts, or the project workflow. Try "What is the current progress?" or "Explain the accuracy scores."',
+        'मैं इस workspace की processing progress, model accuracy, dataset, QC, charts और workflow समझा सकता हूँ। पूछें: "अभी कितना काम पूरा हुआ?" या "Accuracy scores समझाओ।"','Project guide • local answers')
