@@ -38,9 +38,9 @@ LIMITS = {
 }
 
 
-def read_csv(path: Path) -> list[dict[str, str]]:
+def read_csv(path: Path, delimiter: str = ",") -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8-sig") as handle:
-        return list(csv.DictReader(handle))
+        return list(csv.DictReader(handle, delimiter=delimiter))
 
 
 def number(row: dict[str, str], key: str) -> float | None:
@@ -79,14 +79,16 @@ def pilot_read_rows() -> list[dict[str, str]]:
 
 
 def optional_checkm2() -> dict[str, dict[str, str]]:
-    path = OUT / "checkm2" / "quality_report.tsv"
-    if not path.exists():
-        return {}
-    rows = read_csv(path)
     result = {}
-    for row in rows:
-        name = row.get("Name", row.get("name", ""))
-        result[name] = row
+    paths = [OUT / "checkm2" / "quality_report.tsv", *sorted(OUT.glob("pilot3_*/quality_report.tsv"))]
+    for path in paths:
+        if not path.is_file():
+            continue
+        for row in read_csv(path, delimiter="\t"):
+            name = row["Name"]
+            if name in result and any(result[name][key] != row[key] for key in ("Completeness", "Contamination")):
+                raise ValueError(f"Conflicting CheckM2 records for {name} in {path}")
+            result[name] = row
     return result
 
 
