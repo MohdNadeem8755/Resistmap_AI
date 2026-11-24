@@ -4,10 +4,12 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from hosted_auth import router, enabled, cookie, call, profile
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "saved"
 app = FastAPI(docs_url=None, redoc_url=None)
+app.include_router(router)
 dashboard = json.loads((DATA / "dashboard.json").read_text(encoding="utf-8"))
 guest = {"name": "Research guest", "email": "guest", "id": 0}
 
@@ -19,12 +21,12 @@ def health():
 
 @app.get("/")
 def home(request: Request):
-    if request.cookies.get("public_guest") == "1":
+    if enabled or request.cookies.get("public_guest") == "1":
         return FileResponse(ROOT / "web/index.html")
     return HTMLResponse("""<!doctype html><meta name="viewport" content="width=device-width">
     <title>ResistMap AI</title><main style="max-width:38rem;margin:15vh auto;padding:2rem;font:18px system-ui">
     <h1>ResistMap AI</h1><p>Explore the research dashboard, saved sample results and quality reports.
-    Live prediction and personal accounts are disabled in this public edition.</p>
+    Password sign-in and email recovery are awaiting account-service setup. Guest access is available now.</p>
     <form method="post" action="/guest"><button style="padding:.8rem 1rem">Open dashboard as guest</button></form></main>""")
 
 
@@ -37,14 +39,27 @@ def enter():
 
 @app.get("/api/auth/me")
 def me(request: Request):
+    token = request.cookies.get(cookie)
+    if enabled and token:
+        try:
+            return {"user": profile(call("GET", "user", token=token)), "accounts": True}
+        except HTTPException as exc:
+            if exc.status_code != 400:
+                raise
     return {"user": guest if request.cookies.get("public_guest") == "1" else None}
 
 
 @app.post("/api/auth/logout")
-def logout():
+def logout(request: Request):
     from fastapi.responses import JSONResponse
     response = JSONResponse({"ok": True})
     response.delete_cookie("public_guest")
+    if enabled and request.cookies.get(cookie):
+        try:
+            call("POST", "logout", token=request.cookies[cookie])
+        except HTTPException:
+            pass
+    response.delete_cookie(cookie)
     return response
 
 
