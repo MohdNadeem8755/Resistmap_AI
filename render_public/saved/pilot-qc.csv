@@ -1,0 +1,11 @@
+BioSample,source,species,species_match,contigs,N50
+SAMN35159613,assembly,Klebsiella pneumoniae,strong,77,402606
+SAMN06438541,assembly,Klebsiella pneumoniae,strong,163,89615
+SAMN32676135,assembly,Klebsiella pneumoniae,strong,27,804833
+SAMN04014885,assembly,Klebsiella pneumoniae,strong,10,2908400
+SAMN04014994,assembly,Klebsiella pneumoniae,strong,4,5341581
+SAMN28235853,reads,Klebsiella pneumoniae,strong,49,336700
+SAMN11953905,reads,Klebsiella pneumoniae,strong,83,277841
+SAMN05170247,reads,Klebsiella pneumoniae,strong,79,224975
+SAMN11953783,reads,Klebsiella pneumoniae,strong,82,219791
+SAMN06437897,reads,Klebsiella pneumoniae,strong,168,73344
