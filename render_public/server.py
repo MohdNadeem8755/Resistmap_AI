@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 from hosted_auth import router, enabled, cookie, call, profile
 
 ROOT = Path(__file__).resolve().parent
@@ -89,6 +90,31 @@ def lookup(id: str, drug: str = ""):
                 return {**row, "found": True, "species": species, "status": row["observed"],
                         "drugs": [], "explanation": "Saved research example. Independent validation pending."}
     return {"found": False, "sample": id, "status": "Unavailable", "explanation": "No matching saved example."}
+
+
+class Question(BaseModel):
+    message: str = Field(min_length=1, max_length=1500)
+    language: str = "en"
+
+
+@app.post("/api/chat")
+def chat(question: Question):
+    q = question.message.casefold()
+    hi = question.language == "hi"
+    cohort = dashboard["cohort"]
+    if any(k in q for k in ("accuracy", "score", "सटीक", "स्कोर")):
+        metrics = dashboard["model"]["metrics"]
+        value = f"{metrics['accuracy']:.1%}"
+        answer = (f"K. pneumoniae V2 की development accuracy {value} है। स्वतंत्र मूल्यांकन बाकी है।" if hi else
+                  f"K. pneumoniae V2 development accuracy was {value}. Independent validation is pending.")
+    elif any(k in q for k in ("progress", "sample", "cohort", "status", "data", "kitna", "कितना", "पूरा", "नमूने", "डेटा")):
+        total, projects = cohort["total"], cohort["projects"]
+        answer = (f"सहेजे गए development cohort में {projects} प्रोजेक्ट के {total} नमूने हैं।" if hi else
+                  f"The saved development cohort contains {total} samples from {projects} projects.")
+    else:
+        answer = ("आप cohort, progress या accuracy के बारे में पूछ सकते हैं। उदाहरण देखने के लिए Overview खोलें।" if hi else
+                  "Ask about the cohort, progress or accuracy. Open Overview to inspect saved sample results.")
+    return {"answer": answer, "source": "ResistMap · saved dashboard"}
 
 
 @app.api_route("/api/{path:path}", methods=["GET", "POST"])

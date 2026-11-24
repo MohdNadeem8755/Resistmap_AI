@@ -3,6 +3,8 @@ import { X, Send, Volume2, VolumeX, Sparkles, ArrowUpRight } from 'lucide-react'
 import { api, useUI } from './context';
 import { BrandMark } from './Brand';
 import VoiceInput from './VoiceInput';
+import HostedVoiceInput from './HostedVoiceInput';
+const AssistantInput = import.meta.env.VITE_RENDER_PUBLIC === '1' ? HostedVoiceInput : VoiceInput;
 
 export default function Assistant({ open, setOpen, navigate }) {
   const { t, lang, setLang, setTheme, voice, setVoice } = useUI();
@@ -53,7 +55,7 @@ export default function Assistant({ open, setOpen, navigate }) {
     <footer><div className="voice-controls"><button className={voice ? 'active' : ''} onClick={() => { setVoice(!voice); window.speechSynthesis?.cancel(); }}>{voice ? <Volume2 size={14} /> : <VolumeX size={14} />}{t('Read replies aloud', 'जवाब बोलकर सुनाएँ')}</button><span>{lang === 'hi' ? 'हिन्दी' : 'English'}</span></div>
       {notice && <p className="voice-notice" role="status">{notice}</p>}
       <form className="chat-input" onSubmit={e => { e.preventDefault(); send(); }}><textarea rows={2} aria-label={t('Ask a question', 'सवाल पूछें')} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }} maxLength={1500} placeholder={t('Type your question here…', 'अपना सवाल यहाँ लिखें…')} /><button className="send-button" disabled={!input.trim() || busy || voiceBusy} aria-label="Send message"><Send size={17} /></button></form>
-      <VoiceInput onTranscript={text => setInput(previous => `${previous.trim()}${previous.trim() ? ' ' : ''}${text}`.slice(0, 1500))} onBusy={setVoiceBusy} disabled={busy} />
+      <AssistantInput onTranscript={text => setInput(previous => `${previous.trim()}${previous.trim() ? ' ' : ''}${text}`.slice(0, 1500))} onBusy={setVoiceBusy} disabled={busy} />
     </footer>
   </aside>;
 }
