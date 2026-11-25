@@ -4,10 +4,13 @@ from datetime import datetime, timezone
 from functools import lru_cache
 import io
 import json
+import logging
 import math
 import os
 from pathlib import Path
 import time
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(os.environ.get('RESISTMAP_ROOT', Path(__file__).resolve().parents[1]))
 
@@ -71,7 +74,8 @@ def _run_model_inference(species_id, sample_id, drug, standard):
     try:
         from backend.multispecies_predict import predict_sample
         return predict_sample(species_id, sample_id, drug, standard)
-    except Exception:
+    except Exception as exc:
+        logger.warning('Model inference failed for %s/%s (%s): %s', species_id, sample_id, drug, exc)
         return None
 
 
@@ -450,6 +454,7 @@ def lookup_sample(sample_id, species=None, drug=None, root=ROOT):
     try:
         ec_df, ab_df, tb_df = load_all_sample_tables(str(root))
     except (ImportError, OSError) as exc:
+        logger.warning('Failed to load multispecies cohort tables: %s', exc)
         for name, examples in get_species_examples(root).items():
             if species and species.casefold() != name.casefold():
                 continue

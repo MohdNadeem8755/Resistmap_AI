@@ -2,8 +2,24 @@ param([string]$PythonPath = '', [switch]$OpenBrowser)
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
 if (-not $PythonPath) {
-    $PythonPath = Join-Path $projectRoot '.venv-ui\Scripts\python.exe'
-    if (-not (Test-Path -LiteralPath $PythonPath)) { $PythonPath = 'D:\AncondaAPP\python.exe' }
+    $candidates = @(
+        'D:\AncondaAPP\python.exe',
+        (Join-Path $projectRoot '.venv-ui\Scripts\python.exe')
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            & $candidate -c "import fastapi, uvicorn, pandas, pyarrow.parquet, joblib, sklearn" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                $PythonPath = $candidate
+                break
+            }
+        }
+    }
+    if (-not $PythonPath) {
+        $fallback = 'D:\AncondaAPP\python.exe'
+        if (-not (Test-Path -LiteralPath $fallback)) { $fallback = Join-Path $projectRoot '.venv-ui\Scripts\python.exe' }
+        throw "No Python environment has all required packages (fastapi, uvicorn, pandas, pyarrow, joblib, sklearn). Run: $fallback -m pip install -r requirements-ui.txt"
+    }
 }
 $distPath = Join-Path $projectRoot 'frontend\dist\index.html'
 if (-not (Test-Path -LiteralPath $pythonPath)) {

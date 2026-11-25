@@ -143,6 +143,47 @@ def _predict_kp(content):
                       'No uncertainty or genomic novelty guarantee is provided. Independent validation pending.'}
 
 
+@lru_cache(maxsize=2)
+def _load_tb_artifacts(tb_base_str, feat_mtime_ns, cols_mtime_ns):
+    """Load cached TB mutation vocabulary and selected training column map."""
+    tb_base = Path(tb_base_str)
+    feature_names = json.loads((tb_base / 'features/feature_names.json').read_text(encoding='utf-8-sig'))
+    # Each entry is [gene, mutation] — build a lookup from "gene:mutation" → column index
+    feat2idx = {}
+    for idx, entry in enumerate(feature_names):
+        if isinstance(entry, list) and len(entry) == 2:
+            feat2idx[f'{entry[0]}:{entry[1]}'] = idx
+        elif isinstance(entry, str):
+            feat2idx[entry] = idx
+    selected_cols = np.load(str(tb_base / 'supervised_models/selected_feature_cols.npy'))
+    selected_set = set(selected_cols.tolist())
+    col_to_pos = {int(c): i for i, c in enumerate(selected_cols)}
+    return feat2idx, selected_cols, selected_set, col_to_pos
+
+
+def _resolve_tb_feature(name, status, feat2idx, selected_set):
+    """Resolve gene_mutation or gene:mutation tokens against the TB vocabulary."""
+    prefix = {'COMPLETE': 'gene:', 'POINT': 'mutation:'}.get(status)
+    if not prefix:
+        return None, None
+    candidates = [name, prefix + name]
+    if ':' not in name and '_' in name:
+        candidates.extend(
+            f'{name[:i]}:{name[i + 1:]}'
+            for i, ch in enumerate(name)
+            if ch == '_' and i > 0 and i + 1 < len(name)
+        )
+    fallback_idx = None
+    for candidate in candidates:
+        idx = feat2idx.get(candidate)
+        if idx is not None:
+            if idx in selected_set:
+                return candidate, idx
+            if fallback_idx is None:
+                fallback_idx = (candidate, idx)
+    return fallback_idx if fallback_idx is not None else (prefix + name, None)
+
+
 def _predict_tb(content, drug=None):
     """TB supervised prediction via saved LogisticRegression models + selected_feature_cols.npy."""
     dashboard.validate_input(content)
@@ -150,28 +191,20 @@ def _predict_tb(content, drug=None):
     rows = list(csv.DictReader(io.StringIO(content.lstrip('\ufeff')),
                                delimiter='\t' if '\t' in first else ','))
 
-    # Load feature vocabulary (feature_names.json) for the TB mutation space
+    # Load feature vocabulary (feature_names.json) and column selection mask for TB
     tb_base = ROOT / 'data/processed/multispecies/tuberculosis'
     feat_names_path = tb_base / 'features/feature_names.json'
     if not feat_names_path.is_file():
         raise RuntimeError('TB feature vocabulary (feature_names.json) is not available.')
-
-    feature_names = json.loads(feat_names_path.read_text(encoding='utf-8-sig'))
-    # Each entry is [gene, mutation] — build a lookup from "gene:mutation" → column index
-    feat2idx = {}
-    for idx, entry in enumerate(feature_names):
-        if isinstance(entry, list) and len(entry) == 2:
-            key = f"{entry[0]}:{entry[1]}"
-            feat2idx[key] = idx
-        elif isinstance(entry, str):
-            feat2idx[entry] = idx
-
-    # Load column selection mask
     cols_path = tb_base / 'supervised_models/selected_feature_cols.npy'
     if not cols_path.is_file():
         raise RuntimeError('TB selected feature columns (selected_feature_cols.npy) is not available.')
-    selected_cols = np.load(str(cols_path))
-    selected_set = set(selected_cols.tolist())
+
+    feat2idx, selected_cols, selected_set, col_to_pos = _load_tb_artifacts(
+        str(tb_base),
+        feat_names_path.stat().st_mtime_ns,
+        cols_path.stat().st_mtime_ns,
+    )
 
     # Resolve the drug model
     drug_code = (drug or 'rif').lower().replace(' ', '_').replace('-', '_')
@@ -197,9 +230,6 @@ def _predict_tb(content, drug=None):
         raise RuntimeError('TB model must have binary Susceptible (0) / Resistant (1) classes.')
     r_idx = classes.index(1)
 
-    # Build a mapping from full-vocab index → position in selected_cols
-    col_to_pos = {int(c): i for i, c in enumerate(selected_cols)}
-
     results = []
     for row in rows:
         sample_id = row['BioSample'].strip()
@@ -212,12 +242,9 @@ def _predict_tb(content, drug=None):
             name, status = t.rsplit('=', 1)
             name = name.strip()
             status = status.strip()
-            # Map to feature name the same way the training pipeline did
-            prefix = {'COMPLETE': 'gene:', 'POINT': 'mutation:'}.get(status)
-            if not prefix:
+            if status not in {'COMPLETE', 'POINT'}:
                 continue
-            feat_key = prefix + name
-            full_idx = feat2idx.get(feat_key)
+            feat_key, full_idx = _resolve_tb_feature(name, status, feat2idx, selected_set)
             if full_idx is not None and full_idx in selected_set:
                 pos = col_to_pos.get(full_idx)
                 if pos is not None:

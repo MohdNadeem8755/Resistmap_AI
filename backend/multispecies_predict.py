@@ -9,6 +9,7 @@ Supports genuine model inference for:
 TB inference is enabled: selected_feature_cols.npy aligns the full 1.85M-column
 mutation matrix to the 241,285 columns used during training.
 """
+import logging
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -16,6 +17,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import scipy.sparse
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(os.environ.get('RESISTMAP_ROOT', Path(__file__).resolve().parents[1]))
 
@@ -68,7 +71,16 @@ def predict_sample(species_id, sample_id, drug, standard='CLSI'):
     # TB inference is now enabled – selected_feature_cols.npy aligns the
     # full mutation matrix to the 241 285 columns the models were trained on.
 
-    X, samples, cols = _load_matrix(species_id)
+    try:
+        X, samples, cols = _load_matrix(species_id)
+    except Exception as e:
+        logger.warning('Failed to load feature matrix for %s: %s', species_id, e)
+        return {
+            'predicted': None,
+            'score': None,
+            'source': 'not_integrated',
+            'reason': f'Feature matrix load failed for {species_id}: {e}',
+        }
     if X is None or samples is None:
         return {
             'predicted': None,

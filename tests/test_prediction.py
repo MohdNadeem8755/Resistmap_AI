@@ -58,10 +58,14 @@ def test_multispecies_prediction_endpoints():
     tb_res = predict(CONTENT, 'Mycobacterium tuberculosis', True, drug='rifampicin')
     assert tb_res['species'] == 'Mycobacterium tuberculosis'
     assert tb_res['target'] == 'Rifampicin'
-    assert tb_res['prediction_run'] is False or tb_res['prediction_run'] is True
-    # Input features (blaSHV-11, gyrA_S83I) are KP/EC features, not TB mutations,
-    # so they won't match TB vocabulary — expect insufficient_known_features
-    assert tb_res['results'][0]['status'] in ('research_prediction', 'insufficient_known_features')
+    assert tb_res['results'][0]['status'] == 'insufficient_known_features'
+
+    # Verified TB rpoB S450L rifampicin resistance mutation
+    tb_rif = predict('BioSample\tAMR genotypes\nTB_01\trpoB_S450L=POINT\n', 'Mycobacterium tuberculosis', True, drug='rifampicin')
+    assert tb_rif['prediction_run'] is True
+    assert tb_rif['results'][0]['known_features'] == 1
+    assert tb_rif['results'][0]['prediction'] in ('Resistant', 'Susceptible')
+    assert tb_rif['results'][0]['probability_R'] is not None
 
 
 def test_authenticated_api(tmp_path, monkeypatch):
