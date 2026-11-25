@@ -568,10 +568,22 @@ def lookup_sample(sample_id, species=None, drug=None, root=ROOT):
     if tb_df is not None:
         match = tb_df[tb_df['sample_accession'].str.upper() == sid.upper()]
         if not match.empty:
+            # Drug name ↔ short code mapping for TB
+            _tb_name_to_code = {
+                'rifampicin': 'rif', 'isoniazid': 'inh', 'ethambutol': 'emb', 'pyrazinamide': 'pza',
+                'amikacin': 'ami', 'capreomycin': 'cap', 'ethionamide': 'eth', 'kanamycin': 'kan',
+                'levofloxacin': 'lev', 'moxifloxacin': 'mxf', 'ofloxacin': 'ofx', 'streptomycin': 'stm',
+                'bedaquiline': 'bdq', 'clofazimine': 'cfz', 'linezolid': 'lzd',
+                'para-aminosalicylic acid': 'pas', 'para_aminosalicylic_acid': 'pas', 'rifabutin': 'rfb',
+            }
+            _tb_code_to_name = {v: k for k, v in _tb_name_to_code.items() if '_' not in k}
             drugs = [{'drug': row['DRUG'], 'status': 'Resistant' if row['target']==1 else 'Susceptible'} for _, row in match.iterrows()]
             # Task 3: Handle antibiotic selection correctly
             if drug:
-                primary = match[match['DRUG'].str.lower() == drug.lower()]
+                drug_lower = drug.lower().replace('-', ' ').replace('_', ' ')
+                # Try matching by short code directly, or by full name → short code
+                drug_code = _tb_name_to_code.get(drug_lower.replace(' ', '_'), _tb_name_to_code.get(drug_lower, drug_lower))
+                primary = match[match['DRUG'].str.lower().isin([drug_lower, drug_code])]
                 if primary.empty:
                     available_drugs = sorted(match['DRUG'].unique())
                     return {

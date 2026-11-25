@@ -8,7 +8,7 @@ import Workflow from './Workflow';
 import Assistant from './Assistant';
 import InputWorkspace from './InputWorkspace';
 import UnsupervisedResults from './UnsupervisedResults';
-import { lookupSavedExamples } from './savedExampleLookup.mjs';
+import { lookupSavedExamples, reconcileRecordedTest } from './savedExampleLookup.mjs';
 import './revision.css';
 import './styles.css';
 import './responsive-fixes.css';
@@ -117,7 +117,7 @@ function PresentationPrediction({ examples = [], speciesExamples = {}, abScreen 
     try {
       const params = new URLSearchParams({ id: sid });
       if (saved?.drug) params.set('drug', saved.drug);
-      const result = await api(`/sample-lookup?${params}`);
+      const result = reconcileRecordedTest(await api(`/sample-lookup?${params}`));
       if (request !== lookupVersion.current) return;
       const useSaved = savedResult && (!result.found ||
         (!result.predicted && savedResult.predicted && result.drug === savedResult.drug && result.standard === savedResult.standard));
@@ -402,7 +402,7 @@ function Explore({ data, dashboard }) {
         <p className="card-note">{t('Bar lengths use the largest saved cohort as their common scale. These counts are not a combined training set or population prevalence.', 'Bars का common scale सबसे बड़ा saved cohort है। ये counts combined training set या population prevalence नहीं हैं।')}</p>
       </section>
       {['E. coli', 'A. baumannii'].includes(species) && <UnsupervisedResults key={species} summary={summary} cohortId={summary.species.find(s => s.species === species)?.id} />}
-      {species === 'M. tuberculosis' && <p className="card-note">{t('TB supervised prediction is pending.', 'TB supervised prediction अभी pending है।')}</p>}
+      {species === 'M. tuberculosis' && <p className="card-note">{t('TB supervised prediction enabled — 16 drug models trained on 51,012 isolates. Development baselines; independent validation pending.', 'TB supervised prediction enabled — 16 drug models trained on 51,012 isolates। Development baselines; independent validation pending।')}</p>}
     </>}
   </>;
 }
@@ -539,7 +539,7 @@ export default function App() {
   async function refresh() { setRefreshing(true); try { const result = await api('/dashboard'); setData(result); setError(''); } catch (e) { if (e.status === 401) { setUser(null); setData(null); } else setError(e.message); } finally { setRefreshing(false); } }
   useEffect(() => { if (!user) return; refresh(); api('/explore').then(setExplore).catch(e => setError(e.message)); const interval = setInterval(refresh, refreshSeconds * 1000); return () => clearInterval(interval); }, [user, refreshSeconds]);
   useEffect(() => { localStorage.setItem('rm-refresh', String(refreshSeconds)); }, [refreshSeconds]);
-  async function logout() { await api('/auth/logout', { method: 'POST' }); setUser(null); setData(null); setExplore(null); setSelected(null); setChat(false); }
+  async function logout() { await api('/auth/logout', { method: 'POST' }); if (import.meta.env.VITE_RENDER_PUBLIC === '1') { location.replace('/'); return; } setUser(null); setData(null); setExplore(null); setSelected(null); setChat(false); }
   const nav = [
     ['overview', LayoutDashboard, t('Overview', 'अवलोकन')], ['species', Database, t('Bacterial cohorts', 'Bacterial cohorts')], ['genomes', Dna, t('Genomes', 'जीनोम')], ['explore', ChartScatter, t('Explore data', 'डेटा देखें')], ['models', FlaskConical, t('Model lab', 'मॉडल लैब')], ['workflow', GitBranch, t('Project guide', 'प्रोजेक्ट गाइड')], ['input', UploadCloud, t('Input workspace', 'Input workspace')], ['reports', FileText, t('Reports', 'रिपोर्ट')],
   ];
